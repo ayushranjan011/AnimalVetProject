@@ -16,7 +16,7 @@ interface AuthContextType {
   user: User | null
   loading: boolean
   signup: (email: string, password: string, name: string, role: UserRole) => Promise<void>
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<User>
   logout: () => Promise<void>
   error: string | null
 }
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<User> => {
     setError(null)
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
@@ -119,12 +119,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (profile) {
-          setUser({
+          const loggedInUser: User = {
             id: data.user.id,
             email: data.user.email || '',
             name: profile.name,
             role: profile.role,
-          })
+          }
+
+          setUser(loggedInUser)
 
           // Log admin login if admin
           if (profile.role === 'admin' || email === 'admin@innovet.com') {
@@ -137,8 +139,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 status: 'success',
               })
           }
+
+          return loggedInUser
         }
       }
+
+      throw new Error('Invalid email or password')
     } catch (err: any) {
       setError(err.message)
       throw err

@@ -17,14 +17,31 @@ export default function LoginPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
-  const { login } = useAuth()
+  const { login, logout } = useAuth()
   const router = useRouter()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (selectedRole && email && password) {
-      login(email, password, selectedRole)
+    if (!selectedRole || !email || !password) {
+      setError('Please fill in all required fields')
+      return
+    }
+
+    setError('')
+    setLoading(true)
+
+    try {
+      const loggedInUser = await login(email, password)
+
+      if (loggedInUser.role !== selectedRole) {
+        await logout()
+        setError(`This account is registered as ${loggedInUser.role}. Please select the correct role.`)
+        return
+      }
+
       if (selectedRole === 'user') {
         router.push('/user/dashboard')
       } else if (selectedRole === 'veterinarian') {
@@ -32,6 +49,10 @@ export default function LoginPage() {
       } else if (selectedRole === 'ngo') {
         router.push('/ngo/dashboard')
       }
+    } catch (err: any) {
+      setError(err?.message || 'Invalid email or password')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -279,20 +300,24 @@ export default function LoginPage() {
                         className="mt-2 h-12 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
                       />
                     </div>
+                    {error && (
+                      <p className="text-sm font-medium text-rose-600">{error}</p>
+                    )}
                     <div className="flex items-center justify-between text-sm">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
                         <span className="text-slate-600">Remember me</span>
                       </label>
-                      <Link href="#" className="text-teal-600 font-medium hover:text-teal-700">
+                      <Link href="/forgot-password" className="text-teal-600 font-medium hover:text-teal-700">
                         Forgot password?
                       </Link>
                     </div>
                     <Button 
                       type="submit" 
+                      disabled={loading}
                       className="w-full h-12 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-semibold shadow-lg shadow-teal-200/50 transition-all hover:shadow-xl hover:shadow-teal-200/50"
                     >
-                      Sign In
+                      {loading ? 'Signing in...' : 'Sign In'}
                     </Button>
                   </form>
                 </div>

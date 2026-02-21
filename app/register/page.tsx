@@ -21,8 +21,12 @@ export default function RegisterPage() {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
-  const { signup } = useAuth()
+  const { signup, logout } = useAuth()
   const router = useRouter()
+  const handlePhoneChange = (value: string) => {
+    const normalizedPhone = value.replace(/\D/g, '').slice(0, 10)
+    setPhone(normalizedPhone)
+  }
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,16 +46,16 @@ export default function RegisterPage() {
       return
     }
 
+    if (phone && phone.length !== 10) {
+      alert('Phone number must be exactly 10 digits')
+      return
+    }
+
     try {
       await signup(email, password, name, selectedRole)
-      
-      if (selectedRole === 'user') {
-        router.push('/user/dashboard')
-      } else if (selectedRole === 'veterinarian') {
-        router.push('/vet/dashboard')
-      } else if (selectedRole === 'ngo') {
-        router.push('/ngo/dashboard')
-      }
+      await logout()
+      alert('Registered successfully. Please login to continue.')
+      router.push('/')
     } catch (error: any) {
       alert('Registration failed: ' + error.message)
     }
@@ -268,8 +272,11 @@ export default function RegisterPage() {
                           id="phone"
                           type="tel"
                           value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
-                          placeholder="+1 (555) 000-0000"
+                          onChange={(e) => handlePhoneChange(e.target.value)}
+                          placeholder="10-digit number"
+                          inputMode="numeric"
+                          maxLength={10}
+                          pattern="[0-9]{10}"
                           className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
                         />
                       </div>

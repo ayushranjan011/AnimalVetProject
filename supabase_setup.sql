@@ -77,3 +77,39 @@ CREATE POLICY "Admins can create activity logs"
   ON public.admin_activity_logs FOR INSERT
   WITH CHECK (admin_id IN (SELECT id FROM public.admins WHERE user_id = auth.uid()));
 
+-- User Pets Table
+CREATE TABLE IF NOT EXISTS public.user_pets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  pet_type TEXT NOT NULL,
+  breed TEXT,
+  age TEXT,
+  gender TEXT,
+  color TEXT,
+  weight TEXT,
+  image TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.user_pets ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can read their own pets"
+  ON public.user_pets FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own pets"
+  ON public.user_pets FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own pets"
+  ON public.user_pets FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own pets"
+  ON public.user_pets FOR DELETE
+  USING (auth.uid() = user_id);
+

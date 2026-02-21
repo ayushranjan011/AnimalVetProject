@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -9,18 +9,29 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { EmergencySOS } from '@/components/emergency-sos'
 import { PetPassport } from '@/components/pet-passport'
 import BookAppointmentModal from '@/components/BookAppointmentModal'
 import ChatbotPanel from '@/components/ChatbotPanel'
 import { useAuth } from '@/contexts/auth-context'
+import { supabase } from '@/lib/supabase'
 import {
   Menu,
   MessageSquare,
   FileText,
   QrCode,
   Bell,
+  Plus,
   Baby,
   Utensils,
   Calendar,
@@ -50,9 +61,51 @@ import {
   Phone,
   Mail,
   Globe,
+  X,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  UserCircle2,
 } from 'lucide-react'
 
-type ActiveSection = 'home' | 'vet-directory' | 'pharmacy' | 'training' | 'ngo' | 'community'
+type ActiveSection = 'home' | 'vet-directory' | 'pharmacy' | 'training' | 'ngo' | 'community' | 'ai-chatbot' | 'my-pets' | 'my-profile' | 'settings'
+
+type PetProfile = {
+  id: string
+  petId: string
+  name: string
+  type: string
+  breed: string
+  age: string
+  ageYears: number | null
+  ageMonths: number | null
+  gender: string
+  color: string
+  weight: string
+  image: string
+  microchipId: string
+  isNeutered: boolean
+  isRescue: boolean
+  notes: string
+}
+
+type PetDbRow = {
+  id: string
+  pet_id: string
+  name: string
+  species: string
+  breed: string | null
+  age_years: number | null
+  age_months: number | null
+  gender: string | null
+  color: string | null
+  weight: number | null
+  profile_image: string | null
+  microchip_id: string | null
+  is_neutered: boolean | null
+  is_rescue: boolean | null
+  notes: string | null
+}
 
 export default function UserDashboard() {
   const { user, logout } = useAuth()
@@ -63,6 +116,31 @@ export default function UserDashboard() {
   const [feedback, setFeedback] = useState('')
   const [bookingModalOpen, setBookingModalOpen] = useState(false)
   const [selectedVet, setSelectedVet] = useState<any>(null)
+  const [showAddPetPopup, setShowAddPetPopup] = useState(false)
+  const [petModalMode, setPetModalMode] = useState<'add' | 'edit'>('add')
+  const [editingPetId, setEditingPetId] = useState<string | null>(null)
+  const [petImageFile, setPetImageFile] = useState<File | null>(null)
+  const [petImagePreview, setPetImagePreview] = useState('')
+  const [isUploadingPetImage, setIsUploadingPetImage] = useState(false)
+  const [myPets, setMyPets] = useState<PetProfile[]>([])
+  const [selectedPetId, setSelectedPetId] = useState('')
+  const [petsLoading, setPetsLoading] = useState(false)
+  const [petOwnerId, setPetOwnerId] = useState<string | null>(null)
+  const [newPetForm, setNewPetForm] = useState({
+    name: '',
+    species: 'Dog',
+    breed: '',
+    ageYears: '',
+    ageMonths: '',
+    gender: 'unknown',
+    color: '',
+    weight: '',
+    microchipId: '',
+    isNeutered: false,
+    isRescue: false,
+    profileImage: '',
+    notes: '',
+  })
 
   const handleLogout = () => {
     logout()
@@ -77,6 +155,315 @@ export default function UserDashboard() {
   const closeBookingModal = () => {
     setBookingModalOpen(false)
     setSelectedVet(null)
+  }
+
+  const mapDbPetToProfile = (pet: PetDbRow): PetProfile => ({
+    id: pet.id,
+    petId: pet.pet_id,
+    name: pet.name,
+    type: pet.species || 'Not specified',
+    breed: pet.breed || 'Not specified',
+    age: pet.age_years !== null || pet.age_months !== null
+      ? `${pet.age_years ?? 0}y ${pet.age_months ?? 0}m`
+      : 'Not specified',
+    ageYears: pet.age_years,
+    ageMonths: pet.age_months,
+    gender: pet.gender || 'unknown',
+    color: pet.color || 'Not specified',
+    weight: pet.weight !== null ? String(pet.weight) : 'Not specified',
+    image: pet.profile_image || '/images/pet-dog-1.jpg',
+    microchipId: pet.microchip_id || '',
+    isNeutered: !!pet.is_neutered,
+    isRescue: !!pet.is_rescue,
+    notes: pet.notes || 'No additional notes.',
+  })
+
+  const selectedPet = myPets.find((pet) => pet.id === selectedPetId)
+
+  useEffect(() => {
+    if (!petImageFile) {
+      setPetImagePreview('')
+      return
+    }
+
+    const previewUrl = URL.createObjectURL(petImageFile)
+    setPetImagePreview(previewUrl)
+
+    return () => {
+      URL.revokeObjectURL(previewUrl)
+    }
+  }, [petImageFile])
+
+  useEffect(() => {
+    const resolveOwnerId = async () => {
+      if (!user?.id) {
+        setPetOwnerId(null)
+        return
+      }
+
+      try {
+        const { data: byId } = await supabase
+          .from('users')
+          .select('id')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (byId?.id) {
+          setPetOwnerId(byId.id)
+          return
+        }
+      } catch (error) {
+        console.error('Owner id lookup by id failed:', error)
+      }
+
+      try {
+        if (user.email) {
+          const { data: byEmail } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', user.email)
+            .maybeSingle()
+
+          if (byEmail?.id) {
+            setPetOwnerId(byEmail.id)
+            return
+          }
+        }
+      } catch (error) {
+        console.error('Owner id lookup by email failed:', error)
+      }
+
+      setPetOwnerId(user.id)
+    }
+
+    resolveOwnerId()
+  }, [user?.id, user?.email])
+
+  useEffect(() => {
+    const fetchPets = async () => {
+      if (!petOwnerId) {
+        setMyPets([])
+        setSelectedPetId('')
+        return
+      }
+
+      setPetsLoading(true)
+      const { data, error } = await supabase
+        .from('pets')
+        .select('id, pet_id, name, species, breed, age_years, age_months, gender, color, weight, profile_image, microchip_id, is_neutered, is_rescue, notes')
+        .eq('owner_id', petOwnerId)
+        .order('created_at', { ascending: false })
+
+      setPetsLoading(false)
+
+      if (error) {
+        console.error('Failed to fetch pets:', error)
+        setMyPets([])
+        setSelectedPetId('')
+        return
+      }
+
+      const fetchedPets = ((data || []) as PetDbRow[]).map(mapDbPetToProfile)
+      setMyPets(fetchedPets)
+      setSelectedPetId((prev) =>
+        prev && fetchedPets.some((pet) => pet.id === prev) ? prev : (fetchedPets[0]?.id || '')
+      )
+    }
+
+    fetchPets()
+  }, [petOwnerId])
+
+  const resetPetForm = () => {
+    setNewPetForm({
+      name: '',
+      species: 'Dog',
+      breed: '',
+      ageYears: '',
+      ageMonths: '',
+      gender: 'unknown',
+      color: '',
+      weight: '',
+      microchipId: '',
+      isNeutered: false,
+      isRescue: false,
+      profileImage: '',
+      notes: '',
+    })
+    setPetImageFile(null)
+    setEditingPetId(null)
+    setPetModalMode('add')
+  }
+
+  const openAddPetPopup = () => {
+    resetPetForm()
+    setShowAddPetPopup(true)
+  }
+
+  const openEditPetPopup = (pet: PetProfile) => {
+    setPetModalMode('edit')
+    setEditingPetId(pet.id)
+    setPetImageFile(null)
+    setNewPetForm({
+      name: pet.name,
+      species: pet.type,
+      breed: pet.breed,
+      ageYears: pet.ageYears !== null ? String(pet.ageYears) : '',
+      ageMonths: pet.ageMonths !== null ? String(pet.ageMonths) : '',
+      gender: pet.gender,
+      color: pet.color,
+      weight: pet.weight,
+      microchipId: pet.microchipId,
+      isNeutered: pet.isNeutered,
+      isRescue: pet.isRescue,
+      profileImage: pet.image,
+      notes: pet.notes,
+    })
+    setShowAddPetPopup(true)
+  }
+
+  const closeAddPetPopup = () => {
+    setShowAddPetPopup(false)
+    resetPetForm()
+  }
+
+  const handleDeletePet = (petId: string) => {
+    const deletePet = async () => {
+      const shouldDelete = window.confirm('Delete this pet profile?')
+      if (!shouldDelete || !petOwnerId) return
+
+      const { error } = await supabase
+        .from('pets')
+        .delete()
+        .eq('id', petId)
+        .eq('owner_id', petOwnerId)
+
+      if (error) {
+        console.error('Failed to delete pet:', error)
+        alert('Could not delete pet profile. Please try again.')
+        return
+      }
+
+      setMyPets((prev) => {
+        const updated = prev.filter((pet) => pet.id !== petId)
+        if (updated.length === 0) {
+          setSelectedPetId('')
+        } else if (selectedPetId === petId) {
+          setSelectedPetId(updated[0].id)
+        }
+        return updated
+      })
+    }
+
+    deletePet()
+  }
+
+  const uploadPetImage = async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch('/api/upload-pet-image', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error('Image upload failed')
+    }
+
+    const payload = (await response.json()) as { path?: string }
+    if (!payload.path) {
+      throw new Error('Invalid upload response')
+    }
+
+    return payload.path
+  }
+
+  const handleAddPetSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!newPetForm.name.trim()) return
+    if (!petOwnerId) {
+      alert('Please log in to add a pet.')
+      return
+    }
+
+    let uploadedImagePath = newPetForm.profileImage.trim() || '/images/pet-dog-1.jpg'
+    if (petImageFile) {
+      try {
+        setIsUploadingPetImage(true)
+        uploadedImagePath = await uploadPetImage(petImageFile)
+      } catch (error) {
+        console.error(error)
+        alert('Photo upload failed. Please try again.')
+        setIsUploadingPetImage(false)
+        return
+      } finally {
+        setIsUploadingPetImage(false)
+      }
+    }
+
+    const parsedAgeYears = newPetForm.ageYears.trim() ? Number(newPetForm.ageYears) : null
+    const parsedAgeMonths = newPetForm.ageMonths.trim() ? Number(newPetForm.ageMonths) : null
+    const parsedWeight = newPetForm.weight.trim() ? Number(newPetForm.weight) : null
+
+    const generatedPetId = `PET-${Date.now().toString().slice(-8)}`
+    const petPayload = {
+      owner_id: petOwnerId,
+      name: newPetForm.name.trim(),
+      species: newPetForm.species,
+      breed: newPetForm.breed.trim() || 'Not specified',
+      age_years: Number.isFinite(parsedAgeYears) ? parsedAgeYears : null,
+      age_months: Number.isFinite(parsedAgeMonths) ? parsedAgeMonths : null,
+      gender: newPetForm.gender,
+      color: newPetForm.color.trim() || 'Not specified',
+      weight: Number.isFinite(parsedWeight) ? parsedWeight : null,
+      profile_image: uploadedImagePath,
+      microchip_id: newPetForm.microchipId.trim() || null,
+      is_neutered: newPetForm.isNeutered,
+      is_rescue: newPetForm.isRescue,
+      notes: newPetForm.notes.trim() || 'No additional notes.',
+    }
+
+    if (petModalMode === 'edit' && editingPetId) {
+      const { data, error } = await supabase
+        .from('pets')
+        .update(petPayload)
+        .eq('id', editingPetId)
+        .eq('owner_id', petOwnerId)
+        .select('id, pet_id, name, species, breed, age_years, age_months, gender, color, weight, profile_image, microchip_id, is_neutered, is_rescue, notes')
+        .single()
+
+      if (error || !data) {
+        console.error('Failed to update pet:', error)
+        alert(`Could not update pet profile: ${error?.message || 'Unknown error'}`)
+        return
+      }
+
+      const updatedPet = mapDbPetToProfile(data as PetDbRow)
+      setMyPets((prev) => prev.map((pet) => (pet.id === updatedPet.id ? updatedPet : pet)))
+      setSelectedPetId(updatedPet.id)
+    } else {
+      const insertPayload = {
+        ...petPayload,
+        pet_id: generatedPetId,
+      }
+      const { data, error } = await supabase
+        .from('pets')
+        .insert(insertPayload)
+        .select('id, pet_id, name, species, breed, age_years, age_months, gender, color, weight, profile_image, microchip_id, is_neutered, is_rescue, notes')
+        .single()
+
+      if (error || !data) {
+        console.error('Failed to add pet:', error)
+        alert(`Could not add pet profile: ${error?.message || 'Unknown error'}`)
+        return
+      }
+
+      const createdPet = mapDbPetToProfile(data as PetDbRow)
+      setMyPets((prev) => [...prev, createdPet])
+      setSelectedPetId(createdPet.id)
+    }
+
+    setActiveSection('my-pets')
+    closeAddPetPopup()
   }
 
   const topNavItems = [
@@ -234,12 +621,11 @@ phImage: "/images/img/smartchemist.webp"
     { icon: MessageSquare, label: 'AI Chatbot', action: () => setActiveSection('ai-chatbot') },
     { icon: FileText, label: 'Medical Records', action: () => router.push('/user/medical-records') },
     { icon: QrCode, label: 'Pet Passport', action: () => setShowPassport(true) },
+    { icon: PawPrint, label: 'My Pets', action: () => setActiveSection('my-pets') },
     { icon: Bell, label: 'Notifications', action: () => router.push('/user/notifications') },
     { icon: Baby, label: 'Pet Nanny', action: () => router.push('/user/pet-nanny') },
     { icon: Utensils, label: 'Diet Plans', action: () => {} },
     { icon: Calendar, label: 'Appointments', action: () => router.push('/user/appointments') },
-    { icon: Settings, label: 'Settings', action: () => {} },
-    { icon: LogOut, label: 'Logout', action: handleLogout },
   ]
 
   const renderContent = () => {
@@ -676,6 +1062,179 @@ case 'pharmacy':
           </div>
         )
 
+      case 'my-profile':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 flex items-center justify-center">
+                <UserCircle2 className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">My Profile</h2>
+                <p className="text-sm text-slate-500">Your account information</p>
+              </div>
+            </div>
+            <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Name:</span> <span className="font-semibold text-slate-700">{user?.name || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-700">{user?.email || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Role:</span> <span className="font-semibold text-slate-700 capitalize">{user?.role || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Total Pets:</span> <span className="font-semibold text-slate-700">{myPets.length}</span></div>
+              </div>
+              <div className="mt-5 flex gap-3">
+                <Button onClick={() => setActiveSection('my-pets')} className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
+                  <PawPrint className="mr-2 h-4 w-4" /> View My Pets
+                </Button>
+                <Button variant="outline" className="bg-transparent" onClick={() => router.push('/user/notifications')}>
+                  <Bell className="mr-2 h-4 w-4" /> Notifications
+                </Button>
+              </div>
+            </div>
+          </div>
+        )
+
+      case 'settings':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center">
+                <Settings className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Settings</h2>
+                <p className="text-sm text-slate-500">Account quick actions</p>
+              </div>
+            </div>
+            <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 space-y-3">
+              <Button variant="outline" className="w-full justify-start bg-transparent" onClick={() => setActiveSection('my-profile')}>
+                <UserCircle2 className="mr-2 h-4 w-4" /> Open My Profile
+              </Button>
+              <Button variant="outline" className="w-full justify-start bg-transparent" onClick={() => setActiveSection('my-pets')}>
+                <PawPrint className="mr-2 h-4 w-4" /> Open My Pets
+              </Button>
+              <Button variant="outline" className="w-full justify-start bg-transparent" onClick={() => router.push('/user/notifications')}>
+                <Bell className="mr-2 h-4 w-4" /> Open Notifications
+              </Button>
+              <Button variant="outline" className="w-full justify-start border-red-200 text-red-600 hover:bg-red-50 bg-transparent" onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" /> Logout
+              </Button>
+            </div>
+          </div>
+        )
+
+      case 'my-pets':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
+                  <PawPrint className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">My Pets</h2>
+                  <p className="text-sm text-slate-500">Pet profiles and complete pet information</p>
+                </div>
+              </div>
+              <Button
+                onClick={openAddPetPopup}
+                className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
+              >
+                <Plus className="mr-2 h-4 w-4" /> Add Pet
+              </Button>
+            </div>
+
+            {petsLoading ? (
+              <div className="p-8 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 text-center text-slate-600">
+                Loading pets...
+              </div>
+            ) : myPets.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 text-center">
+                <p className="text-slate-600 mb-4">No pet profiles yet.</p>
+                <Button
+                  onClick={openAddPetPopup}
+                  className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Add Your First Pet
+                </Button>
+              </div>
+            ) : (
+              <div className="grid lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-1 space-y-3">
+                  {myPets.map((pet) => (
+                    <button
+                      key={pet.id}
+                      onClick={() => setSelectedPetId(pet.id)}
+                      className={`w-full text-left p-3 rounded-2xl border transition-all ${
+                        selectedPetId === pet.id
+                          ? 'bg-teal-50 border-teal-300 shadow-md'
+                          : 'bg-white/70 border-white/50 hover:shadow-lg'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-slate-100">
+                          <Image src={pet.image || '/placeholder.svg'} alt={pet.name} fill className="object-cover" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-800">{pet.name}</p>
+                          <p className="text-xs text-slate-500">{pet.type} | {pet.breed}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="lg:col-span-2 p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
+                  {selectedPet ? (
+                    <>
+                      <div className="flex flex-col md:flex-row gap-5">
+                        <div className="relative w-full md:w-56 h-56 rounded-2xl overflow-hidden bg-slate-100">
+                          <Image src={selectedPet.image || '/placeholder.svg'} alt={selectedPet.name} fill className="object-cover" />
+                        </div>
+                        <div className="flex-1 space-y-3">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-2xl font-bold text-slate-800">{selectedPet.name}</h3>
+                            <Badge className="bg-teal-100 text-teal-700">{selectedPet.petId}</Badge>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                            <div className="p-3 rounded-xl bg-teal-50/60"><span className="text-slate-500">Type:</span> <span className="font-semibold text-slate-700">{selectedPet.type}</span></div>
+                            <div className="p-3 rounded-xl bg-teal-50/60"><span className="text-slate-500">Breed:</span> <span className="font-semibold text-slate-700">{selectedPet.breed}</span></div>
+                            <div className="p-3 rounded-xl bg-teal-50/60"><span className="text-slate-500">Age:</span> <span className="font-semibold text-slate-700">{selectedPet.age}</span></div>
+                            <div className="p-3 rounded-xl bg-teal-50/60"><span className="text-slate-500">Gender:</span> <span className="font-semibold text-slate-700">{selectedPet.gender}</span></div>
+                            <div className="p-3 rounded-xl bg-teal-50/60"><span className="text-slate-500">Color:</span> <span className="font-semibold text-slate-700">{selectedPet.color}</span></div>
+                            <div className="p-3 rounded-xl bg-teal-50/60"><span className="text-slate-500">Weight:</span> <span className="font-semibold text-slate-700">{selectedPet.weight}</span></div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 p-4 rounded-xl bg-cyan-50/70 border border-cyan-100">
+                        <p className="text-sm text-slate-500 mb-1">Notes</p>
+                        <p className="text-sm text-slate-700">{selectedPet.notes}</p>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <Button
+                          variant="outline"
+                          className="border-teal-200 text-teal-700 hover:bg-teal-50 bg-transparent"
+                          onClick={() => openEditPetPopup(selectedPet)}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" /> Edit Profile
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-red-200 text-red-600 hover:bg-red-50 bg-transparent"
+                          onClick={() => handleDeletePet(selectedPet.id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete Profile
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-slate-600">Select a pet to view details.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+
       default:
         return (
           <div className="space-y-8">
@@ -746,7 +1305,7 @@ case 'pharmacy':
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-cyan-50/40 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-cyan-50/40 relative">
       {/* Background Orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-72 h-72 bg-teal-300/20 rounded-full blur-3xl" />
@@ -819,16 +1378,48 @@ case 'pharmacy':
           </div>
           
           <div className="ml-auto flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hover:bg-teal-100/50"
+              onClick={openAddPetPopup}
+              aria-label="Add Pet"
+              title="Add Pet"
+            >
+              <Plus className="h-5 w-5 text-slate-600" />
+            </Button>
             <Button variant="ghost" size="icon" className="relative hover:bg-teal-100/50">
               <Bell className="h-5 w-5 text-slate-600" />
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
             </Button>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-teal-100/80 to-cyan-100/60">
-              <Avatar className="w-7 h-7 border-2 border-white">
-                <AvatarFallback className="bg-gradient-to-br from-teal-500 to-cyan-500 text-white text-xs">{user?.name?.[0].toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <span className="text-sm font-medium text-slate-700 hidden lg:block">{user?.name}</span>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-teal-100/80 to-cyan-100/60 hover:from-teal-200/80 hover:to-cyan-200/60 transition-colors">
+                  <Avatar className="w-7 h-7 border-2 border-white">
+                    <AvatarFallback className="bg-gradient-to-br from-teal-500 to-cyan-500 text-white text-xs">{user?.name?.[0]?.toUpperCase() || 'U'}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium text-slate-700 hidden lg:block">{user?.name || 'User'}</span>
+                  <ChevronDown className="w-4 h-4 text-slate-600" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel>{user?.name || 'My Account'}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setActiveSection('my-profile')}>
+                  <UserCircle2 className="w-4 h-4 mr-2" /> My Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setActiveSection('my-pets')}>
+                  <PawPrint className="w-4 h-4 mr-2" /> My Pets
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setActiveSection('settings')}>
+                  <Settings className="w-4 h-4 mr-2" /> Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={handleLogout}>
+                  <LogOut className="w-4 h-4 mr-2" /> Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -919,6 +1510,185 @@ case 'pharmacy':
         onClose={closeBookingModal}
         vet={selectedVet}
       />
+
+      {showAddPetPopup && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeAddPetPopup}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl bg-white border border-white/50 shadow-2xl p-6 md:p-7 max-h-[90vh] overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-800">{petModalMode === 'edit' ? 'Edit Pet' : 'Add Pet'}</h3>
+                <p className="text-sm text-slate-500">{petModalMode === 'edit' ? 'Update pet profile details' : 'Fill pet profile details'}</p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={closeAddPetPopup}>
+                <X className="w-5 h-5 text-slate-600" />
+              </Button>
+            </div>
+
+            <form onSubmit={handleAddPetSubmit} className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-semibold">Pet Name *</Label>
+                  <Input
+                    value={newPetForm.name}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, name: event.target.value }))}
+                    placeholder="e.g. Bruno"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Species</Label>
+                  <select
+                    value={newPetForm.species}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, species: event.target.value }))}
+                    className="mt-2 w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option>Dog</option>
+                    <option>Cat</option>
+                    <option>Cow</option>
+                    <option>Goat</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Breed</Label>
+                  <Input
+                    value={newPetForm.breed}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, breed: event.target.value }))}
+                    placeholder="e.g. Labrador"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Age (Years)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={newPetForm.ageYears}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, ageYears: event.target.value }))}
+                    placeholder="e.g. 2"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Age (Months)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={11}
+                    value={newPetForm.ageMonths}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, ageMonths: event.target.value }))}
+                    placeholder="e.g. 6"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Gender</Label>
+                  <select
+                    value={newPetForm.gender}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, gender: event.target.value }))}
+                    className="mt-2 w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="male">male</option>
+                    <option value="female">female</option>
+                    <option value="unknown">unknown</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Weight</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    value={newPetForm.weight}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, weight: event.target.value }))}
+                    placeholder="e.g. 18.5"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Color</Label>
+                  <Input
+                    value={newPetForm.color}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, color: event.target.value }))}
+                    placeholder="e.g. Brown"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Microchip ID</Label>
+                  <Input
+                    value={newPetForm.microchipId}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, microchipId: event.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Pet Photo</Label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => setPetImageFile(event.target.files?.[0] || null)}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Image will be uploaded to `public/images/pets`.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={newPetForm.isNeutered}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, isNeutered: event.target.checked }))}
+                  />
+                  Is Neutered
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={newPetForm.isRescue}
+                    onChange={(event) => setNewPetForm((prev) => ({ ...prev, isRescue: event.target.checked }))}
+                  />
+                  Is Rescue
+                </label>
+              </div>
+
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/80">
+                <p className="text-xs text-slate-500 mb-2">Photo Preview</p>
+                <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-slate-200">
+                  <Image
+                    src={petImagePreview || newPetForm.profileImage || '/images/pet-dog-1.jpg'}
+                    alt="Pet preview"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold">Notes</Label>
+                <Textarea
+                  value={newPetForm.notes}
+                  onChange={(event) => setNewPetForm((prev) => ({ ...prev, notes: event.target.value }))}
+                  placeholder="Any health history, allergies, behavior notes..."
+                  className="min-h-24"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" className="bg-transparent" onClick={closeAddPetPopup}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isUploadingPetImage} className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
+                  <Plus className="mr-2 h-4 w-4" /> {isUploadingPetImage ? 'Uploading...' : (petModalMode === 'edit' ? 'Update Pet' : 'Save Pet')}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

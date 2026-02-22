@@ -1,9 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import dynamic from 'next/dynamic'
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useEffect, useRef } from 'react'
 
 declare global {
   interface Window {
@@ -25,9 +22,6 @@ export default function VideoCall({
   onLeave
 }: VideoCallProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [isCallActive, setIsCallActive] = useState(false)
-  const [isMicOn, setIsMicOn] = useState(true)
-  const [isCameraOn, setIsCameraOn] = useState(true)
   const zpRef = useRef<any>(null)
 
   useEffect(() => {
@@ -92,20 +86,11 @@ export default function VideoCall({
         maxUsers: 2,
         layout: 'Auto',
         showLayoutButton: false,
+        onLeaveRoom: () => onLeave?.(),
       })
-
-      setIsCallActive(true)
     } catch (error) {
       console.error('Failed to initialize video call:', error)
     }
-  }
-
-  const handleLeaveCall = () => {
-    if (zpRef.current) {
-      zpRef.current.destroy()
-    }
-    setIsCallActive(false)
-    onLeave?.()
   }
 
   return (
@@ -115,38 +100,6 @@ export default function VideoCall({
         ref={containerRef}
         className="w-full h-full"
       />
-
-      {/* Control Bar - Floating at bottom */}
-      {isCallActive && (
-        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-4 z-50">
-          <Button
-            size="icon"
-            variant={isMicOn ? 'default' : 'destructive'}
-            onClick={() => setIsMicOn(!isMicOn)}
-            className="rounded-full w-12 h-12"
-          >
-            {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-          </Button>
-
-          <Button
-            size="icon"
-            variant={isCameraOn ? 'default' : 'destructive'}
-            onClick={() => setIsCameraOn(!isCameraOn)}
-            className="rounded-full w-12 h-12"
-          >
-            {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-          </Button>
-
-          <Button
-            size="icon"
-            variant="destructive"
-            onClick={handleLeaveCall}
-            className="rounded-full w-12 h-12"
-          >
-            <PhoneOff className="w-5 h-5" />
-          </Button>
-        </div>
-      )}
     </div>
   )
 }

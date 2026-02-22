@@ -107,6 +107,14 @@ type PetDbRow = {
   notes: string | null
 }
 
+const mapToUsersRole = (role: 'user' | 'veterinarian' | 'ngo' | undefined): 'pet_owner' | 'veterinarian' | 'ngo' => {
+  if (role === 'veterinarian' || role === 'ngo') {
+    return role
+  }
+
+  return 'pet_owner'
+}
+
 export default function UserDashboard() {
   const { user, logout } = useAuth()
   const router = useRouter()
@@ -201,43 +209,69 @@ export default function UserDashboard() {
         return
       }
 
-      try {
-        const { data: byId } = await supabase
-          .from('users')
-          .select('id')
-          .eq('id', user.id)
-          .maybeSingle()
+      const normalizedEmail = user.email?.trim()
+      const normalizedName = user.name?.trim()
 
-        if (byId?.id) {
-          setPetOwnerId(byId.id)
-          return
-        }
-      } catch (error) {
-        console.error('Owner id lookup by id failed:', error)
+      const { data: byId, error: byIdError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (byIdError) {
+        console.error('Owner id lookup by id failed:', byIdError)
       }
 
-      try {
-        if (user.email) {
-          const { data: byEmail } = await supabase
-            .from('users')
-            .select('id')
-            .eq('email', user.email)
-            .maybeSingle()
+      if (byId?.id) {
+        setPetOwnerId(byId.id)
+        return
+      }
 
-          if (byEmail?.id) {
-            setPetOwnerId(byEmail.id)
-            return
-          }
+      if (normalizedEmail) {
+        const { data: byEmail, error: byEmailError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', normalizedEmail)
+          .maybeSingle()
+
+        if (byEmailError) {
+          console.error('Owner id lookup by email failed:', byEmailError)
         }
-      } catch (error) {
-        console.error('Owner id lookup by email failed:', error)
+
+        if (byEmail?.id) {
+          setPetOwnerId(byEmail.id)
+          return
+        }
+      }
+
+      if (!normalizedEmail) {
+        setPetOwnerId(null)
+        return
+      }
+
+      const { error: upsertError } = await supabase
+        .from('users')
+        .upsert(
+          {
+            id: user.id,
+            email: normalizedEmail,
+            full_name: normalizedName || normalizedEmail.split('@')[0] || 'Pet Owner',
+            role: mapToUsersRole(user.role),
+          },
+          { onConflict: 'id' }
+        )
+
+      if (upsertError) {
+        console.error('Owner record creation failed:', upsertError)
+        setPetOwnerId(null)
+        return
       }
 
       setPetOwnerId(user.id)
     }
 
     resolveOwnerId()
-  }, [user?.id, user?.email])
+  }, [user?.id, user?.email, user?.name, user?.role])
 
   useEffect(() => {
     const fetchPets = async () => {
@@ -453,7 +487,10 @@ export default function UserDashboard() {
 
       if (error || !data) {
         console.error('Failed to add pet:', error)
-        alert(`Could not add pet profile: ${error?.message || 'Unknown error'}`)
+        const errorDetails = [error?.message, error?.details, error?.hint]
+          .filter(Boolean)
+          .join(' ')
+        alert(`Could not add pet profile: ${errorDetails || 'Unknown error'}`)
         return
       }
 

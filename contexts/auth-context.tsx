@@ -5,6 +5,14 @@ import { supabase } from '@/lib/supabase'
 
 type UserRole = 'user' | 'veterinarian' | 'ngo'
 
+const mapToUsersRole = (role: UserRole): 'pet_owner' | 'veterinarian' | 'ngo' => {
+  if (role === 'veterinarian' || role === 'ngo') {
+    return role
+  }
+
+  return 'pet_owner'
+}
+
 interface User {
   id: string
   email: string
@@ -82,6 +90,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
 
         if (profileError) throw profileError
+
+        const { error: usersError } = await supabase
+          .from('users')
+          .upsert(
+            {
+              id: authData.user.id,
+              email,
+              full_name: name,
+              role: mapToUsersRole(role),
+            },
+            { onConflict: 'id' }
+          )
+
+        if (usersError) throw usersError
 
         setUser({
           id: authData.user.id,

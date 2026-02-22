@@ -13,6 +13,18 @@ const mapToUsersRole = (role: UserRole): 'pet_owner' | 'veterinarian' | 'ngo' =>
   return 'pet_owner'
 }
 
+const isMissingColumnError = (error: any) => {
+  const message = String(error?.message || '').toLowerCase()
+  const details = String(error?.details || '').toLowerCase()
+  return (
+    error?.code === 'PGRST204' ||
+    error?.code === '42703' ||
+    message.includes('could not find') ||
+    message.includes('column') ||
+    details.includes('column')
+  )
+}
+
 interface User {
   id: string
   email: string
@@ -20,10 +32,27 @@ interface User {
   name: string
 }
 
+export interface VetSignupProfile {
+  specialty: string
+  experienceYears?: number | null
+  clinicName?: string
+  clinicAddress?: string
+  city?: string
+  consultationFee?: number | null
+  availability?: string
+  description?: string
+  imageUrl?: string
+}
+
+interface SignupOptions {
+  phone?: string
+  vetProfile?: VetSignupProfile
+}
+
 interface AuthContextType {
   user: User | null
   loading: boolean
-  signup: (email: string, password: string, name: string, role: UserRole) => Promise<void>
+  signup: (email: string, password: string, name: string, role: UserRole, options?: SignupOptions) => Promise<void>
   login: (email: string, password: string) => Promise<User>
   logout: () => Promise<void>
   error: string | null
@@ -67,7 +96,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession()
   }, [])
 
-  const signup = async (email: string, password: string, name: string, role: UserRole) => {
+  const signup = async (
+    email: string,
+    password: string,
+    name: string,
+    role: UserRole,
+    options?: SignupOptions
+  ) => {
     setError(null)
     try {
       // Sign up with Supabase Auth
@@ -79,17 +114,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (authError) throw authError
 
       if (authData.user) {
+        const profilePayload: Record<string, unknown> = {
+          id: authData.user.id,
+          email,
+          name,
+          role,
+        }
+
+        const normalizedPhone = options?.phone?.trim()
+        if (normalizedPhone) {
+          profilePayload.phone = normalizedPhone
+        }
+
+        if (role === 'veterinarian') {
+          const vetProfile = options?.vetProfile
+          profilePayload.vet_specialty = vetProfile?.specialty?.trim() || null
+          profilePayload.vet_experience_years = vetProfile?.experienceYears ?? null
+          profilePayload.vet_clinic_name = vetProfile?.clinicName?.trim() || null
+          profilePayload.vet_clinic_address = vetProfile?.clinicAddress?.trim() || null
+          profilePayload.vet_city = vetProfile?.city?.trim() || null
+          profilePayload.vet_consultation_fee = vetProfile?.consultationFee ?? null
+          profilePayload.vet_availability = vetProfile?.availability?.trim() || 'Available'
+          profilePayload.vet_description = vetProfile?.description?.trim() || null
+          profilePayload.vet_image_url = vetProfile?.imageUrl?.trim() || null
+        }
+
         // Create user profile
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert({
-            id: authData.user.id,
-            email,
-            name,
-            role,
-          })
+          .insert(profilePayload)
 
-        if (profileError) throw profileError
+        if (profileError) {
+          if (!isMissingColumnError(profileError)) {
+            throw profileError
+          }
+
+          // Backward compatibility: older DB schema without vet profile columns.
+          const { error: fallbackProfileError } = await supabase
+            .from('profiles')
+            .insert({
+              id: authData.user.id,
+              email,
+              name,
+              role,
+            })
+
+          if (fallbackProfileError) {
+            throw fallbackProfileError
+          }
+
+          console.warn(
+            'Profiles table appears to be missing vet profile columns. Applied fallback insert.'
+          )
+        }
 
         const { error: usersError } = await supabase
           .from('users')

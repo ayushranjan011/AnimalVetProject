@@ -8,8 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import VetAppointmentPanel from '@/components/VetAppointmentPanel'
+import VetProfileSettings from '@/components/VetProfileSettings'
 import { useAuth } from '@/contexts/auth-context'
 import {
   LayoutDashboard,
@@ -596,28 +596,7 @@ const [openPatientId, setOpenPatientId] = useState<string | null>(null);
             </div>
 
             <div className="space-y-4">
-              <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
-                <h3 className="font-semibold text-slate-800 mb-4">Profile Information</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-slate-600">Full Name</label>
-                    <Input defaultValue={`Dr. ${user?.name}`} className="mt-1" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-600">Email</label>
-                    <Input defaultValue={user?.email} className="mt-1" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-600">Phone</label>
-                    <Input defaultValue="+1 (555) 123-4567" className="mt-1" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-600">Specialization</label>
-                    <Input defaultValue="General Practice" className="mt-1" />
-                  </div>
-                </div>
-                <Button className="mt-6 bg-gradient-to-r from-teal-500 to-cyan-500">Save Changes</Button>
-              </div>
+              <VetProfileSettings />
 
               <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
                 <h3 className="font-semibold text-slate-800 mb-4">Notifications</h3>

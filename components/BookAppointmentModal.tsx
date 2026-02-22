@@ -13,7 +13,7 @@ interface Vet {
   name: string
   specialty: string
   image: string
-  rating: number
+  rating: number | null
   distance: string
   descriptions: string
 }
@@ -79,7 +79,7 @@ export default function BookAppointmentModal({ isOpen, onClose, vet }: BookingMo
         <DialogHeader>
           <DialogTitle>Book Appointment with {vet.name}</DialogTitle>
           <DialogDescription>
-            {vet.specialty} • Rating: {vet.rating}/5.0
+            {vet.specialty} • Rating: {vet.rating !== null ? `${vet.rating}/5.0` : 'N/A'}
           </DialogDescription>
         </DialogHeader>
 

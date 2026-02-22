@@ -1,17 +1,39 @@
 'use client'
 
-import React from "react"
-import { useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/contexts/auth-context'
-import { User, Stethoscope, Heart, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { User, Stethoscope, Heart, ArrowRight, CheckCircle2, Upload, X, Loader2 } from 'lucide-react'
 
 type UserRole = 'user' | 'veterinarian' | 'ngo' | null
+
+type VetRegistrationForm = {
+  specialty: string
+  experienceYears: string
+  clinicName: string
+  clinicAddress: string
+  city: string
+  consultationFee: string
+  availability: 'Available' | 'Busy' | 'On Leave'
+  description: string
+}
+
+const initialVetForm: VetRegistrationForm = {
+  specialty: '',
+  experienceYears: '',
+  clinicName: '',
+  clinicAddress: '',
+  city: '',
+  consultationFee: '',
+  availability: 'Available',
+  description: '',
+}
 
 export default function RegisterPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>(null)
@@ -21,16 +43,63 @@ export default function RegisterPage() {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [vetForm, setVetForm] = useState<VetRegistrationForm>(initialVetForm)
+  const [vetImageFile, setVetImageFile] = useState<File | null>(null)
+  const [vetImagePreview, setVetImagePreview] = useState('')
   const { signup, logout } = useAuth()
   const router = useRouter()
+
+  useEffect(() => {
+    if (!vetImageFile) {
+      setVetImagePreview('')
+      return
+    }
+
+    const previewUrl = URL.createObjectURL(vetImageFile)
+    setVetImagePreview(previewUrl)
+
+    return () => {
+      URL.revokeObjectURL(previewUrl)
+    }
+  }, [vetImageFile])
+
+  const resetVetForm = () => {
+    setVetForm(initialVetForm)
+    setVetImageFile(null)
+    setVetImagePreview('')
+  }
+
   const handlePhoneChange = (value: string) => {
     const normalizedPhone = value.replace(/\D/g, '').slice(0, 10)
     setPhone(normalizedPhone)
   }
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const uploadVetImage = async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch('/api/upload-vet-image', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      throw new Error(payload.error || 'Image upload failed')
+    }
+
+    const payload = (await response.json()) as { path?: string }
+    if (!payload.path) {
+      throw new Error('Invalid image upload response')
+    }
+
+    return payload.path
+  }
+
+  const handleRegister = async (e: FormEvent) => {
     e.preventDefault()
-    
+
     if (!selectedRole || !email || !password || !name) {
       alert('Please fill in all required fields')
       return
@@ -51,13 +120,56 @@ export default function RegisterPage() {
       return
     }
 
+    if (selectedRole === 'veterinarian' && !vetForm.specialty.trim()) {
+      alert('Please add veterinarian specialty')
+      return
+    }
+
+    const parsedExperienceYears = vetForm.experienceYears.trim() ? Number(vetForm.experienceYears) : null
+    if (parsedExperienceYears !== null && (!Number.isFinite(parsedExperienceYears) || parsedExperienceYears < 0)) {
+      alert('Experience years must be a valid positive number')
+      return
+    }
+
+    const parsedConsultationFee = vetForm.consultationFee.trim() ? Number(vetForm.consultationFee) : null
+    if (parsedConsultationFee !== null && (!Number.isFinite(parsedConsultationFee) || parsedConsultationFee < 0)) {
+      alert('Consultation fee must be a valid positive number')
+      return
+    }
+
+    setIsSubmitting(true)
+
     try {
-      await signup(email, password, name, selectedRole)
+      let vetImageUrl: string | undefined
+
+      if (selectedRole === 'veterinarian' && vetImageFile) {
+        vetImageUrl = await uploadVetImage(vetImageFile)
+      }
+
+      await signup(email, password, name, selectedRole, {
+        phone,
+        vetProfile: selectedRole === 'veterinarian'
+          ? {
+              specialty: vetForm.specialty,
+              experienceYears: parsedExperienceYears,
+              clinicName: vetForm.clinicName,
+              clinicAddress: vetForm.clinicAddress,
+              city: vetForm.city,
+              consultationFee: parsedConsultationFee,
+              availability: vetForm.availability,
+              description: vetForm.description,
+              imageUrl: vetImageUrl,
+            }
+          : undefined,
+      })
+
       await logout()
       alert('Registered successfully. Please login to continue.')
       router.push('/')
     } catch (error: any) {
       alert('Registration failed: ' + error.message)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -73,10 +185,10 @@ export default function RegisterPage() {
     {
       id: 'veterinarian' as const,
       title: 'Veterinarian',
-      description: 'Manage patients, appointments, and emergency cases',
+      description: 'Create professional profile, manage patients, and handle emergency cases',
       icon: Stethoscope,
       gradient: 'from-cyan-400 to-blue-500',
-      benefits: ['Manage patients', 'Handle emergencies', 'Collaborate'],
+      benefits: ['Professional listing', 'Manage patients', 'Handle emergencies'],
     },
     {
       id: 'ngo' as const,
@@ -90,7 +202,6 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-cyan-50/50">
-      {/* Floating Background Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 right-10 w-72 h-72 bg-cyan-200/30 rounded-full blur-3xl" />
         <div className="absolute bottom-20 left-10 w-96 h-96 bg-teal-200/30 rounded-full blur-3xl" />
@@ -98,14 +209,11 @@ export default function RegisterPage() {
       </div>
 
       <div className="relative min-h-screen flex flex-col lg:flex-row">
-        {/* Left Panel - Branding */}
         <div className="lg:w-2/5 bg-gradient-to-br from-cyan-600 via-teal-600 to-emerald-700 p-8 lg:p-12 flex flex-col justify-between relative overflow-hidden">
-          {/* Pattern Overlay */}
           <div className="absolute inset-0 opacity-10 bg-pattern" />
-          
-          <div className="relative z-10  ">
-            {/* Logo */}
-            <div className="flex items-center gap-4 mb-2 ">
+
+          <div className="relative z-10">
+            <div className="flex items-center gap-4 mb-2">
               <div className="relative w-14 h-14 rounded-2xl overflow-hidden bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl">
                 <Image
                   src="/images/innovet-logo.jpg"
@@ -120,7 +228,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Main Heading */}
             <div className="mb-2">
               <h2 className="text-4xl lg:text-5xl font-bold text-white leading-tight mb-4 text-balance">
                 Join our pet care community
@@ -130,7 +237,6 @@ export default function RegisterPage() {
               </p>
             </div>
 
-            {/* Benefits List */}
             <div className="space-y-2">
               {['Free to get started', 'Connect with experts', 'Access 24/7 support'].map((benefit) => (
                 <div key={benefit} className="flex items-center gap-3">
@@ -143,9 +249,8 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Image */}
           <div className="relative z-10 mt-12 lg:mt-1 hidden lg:block">
-            <div className="relative w-full h-85  ">
+            <div className="relative w-full h-85">
               <Image
                 src="/images/img/1a.png"
                 alt="Veterinary Clinic"
@@ -157,17 +262,15 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* Right Panel - Content */}
         <div className="flex-1 p-8 lg:p-12 flex items-center justify-center">
-          <div className="w-full max-w-lg">
+          <div className="w-full max-w-3xl">
             {!selectedRole ? (
-              <div className="space-y-8">
+              <div className="space-y-8 max-w-lg mx-auto">
                 <div>
                   <h2 className="text-3xl font-bold text-slate-800 mb-2">Create your account</h2>
                   <p className="text-slate-500">Select your role to get started</p>
                 </div>
 
-                {/* Role Selection - Horizontal Tabs Style */}
                 <div className="space-y-4">
                   {roles.map((role) => {
                     const Icon = role.icon
@@ -179,13 +282,13 @@ export default function RegisterPage() {
                         onMouseEnter={() => setHoveredRole(role.id)}
                         onMouseLeave={() => setHoveredRole(null)}
                         className={`w-full p-5 rounded-2xl border-2 transition-all duration-300 text-left group relative overflow-hidden ${
-                          isHovered 
-                            ? 'border-teal-400 bg-white shadow-xl shadow-teal-100/50 scale-[1.02]' 
+                          isHovered
+                            ? 'border-teal-400 bg-white shadow-xl shadow-teal-100/50 scale-[1.02]'
                             : 'border-slate-200 bg-white/70 backdrop-blur-sm hover:bg-white'
                         }`}
                       >
                         <div className={`absolute inset-0 bg-gradient-to-r ${role.gradient} opacity-0 transition-opacity duration-300 ${isHovered ? 'opacity-5' : ''}`} />
-                        
+
                         <div className="relative flex items-start gap-4">
                           <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${role.gradient} flex items-center justify-center shadow-lg flex-shrink-0 transition-transform duration-300 ${isHovered ? 'scale-110' : ''}`}>
                             <Icon className="w-6 h-6 text-white" />
@@ -208,7 +311,6 @@ export default function RegisterPage() {
                   })}
                 </div>
 
-                {/* Login Link */}
                 <div className="text-center pt-4 border-t border-slate-200">
                   <p className="text-slate-500">
                     Already have an account?{' '}
@@ -220,21 +322,21 @@ export default function RegisterPage() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* Back Button */}
                 <button
-                  onClick={() => setSelectedRole(null)}
+                  onClick={() => {
+                    setSelectedRole(null)
+                    resetVetForm()
+                  }}
                   className="flex items-center gap-2 text-slate-500 hover:text-slate-700 transition-colors"
                 >
                   <ArrowRight className="w-4 h-4 rotate-180" />
                   <span className="text-sm font-medium">Back to roles</span>
                 </button>
 
-                {/* Register Form Container */}
-                <div className="bg-white rounded-3xl p-8 shadow-xl shadow-slate-200/50 border border-slate-100">
-                  {/* Role Badge */}
+                <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-200/50 border border-slate-100 max-h-[85vh] overflow-y-auto">
                   <div className="flex items-center gap-3 mb-6 pb-6 border-b border-slate-100">
                     {(() => {
-                      const role = roles.find(r => r.id === selectedRole)
+                      const role = roles.find((r) => r.id === selectedRole)
                       if (!role) return null
                       const Icon = role.icon
                       return (
@@ -244,16 +346,17 @@ export default function RegisterPage() {
                           </div>
                           <div>
                             <h3 className="text-xl font-bold text-slate-800">Register as {role.title}</h3>
-                            <p className="text-sm text-slate-500">Fill in your details</p>
+                            <p className="text-sm text-slate-500">
+                              {selectedRole === 'veterinarian' ? 'Set up your professional profile' : 'Fill in your account details'}
+                            </p>
                           </div>
                         </>
                       )
                     })()}
                   </div>
 
-                  {/* Form */}
-                  <form onSubmit={handleRegister} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
+                  <form onSubmit={handleRegister} className="space-y-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="name" className="text-sm font-medium text-slate-700">Full Name *</Label>
                         <Input
@@ -281,6 +384,7 @@ export default function RegisterPage() {
                         />
                       </div>
                     </div>
+
                     <div>
                       <Label htmlFor="email" className="text-sm font-medium text-slate-700">Email address *</Label>
                       <Input
@@ -293,7 +397,8 @@ export default function RegisterPage() {
                         className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="password" className="text-sm font-medium text-slate-700">Password *</Label>
                         <Input
@@ -307,7 +412,7 @@ export default function RegisterPage() {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="confirmPassword" className="text-sm font-medium text-slate-700">Confirm *</Label>
+                        <Label htmlFor="confirmPassword" className="text-sm font-medium text-slate-700">Confirm Password *</Label>
                         <Input
                           id="confirmPassword"
                           type="password"
@@ -319,22 +424,168 @@ export default function RegisterPage() {
                         />
                       </div>
                     </div>
-                    <div className="flex items-start gap-2 pt-2">
+
+                    {selectedRole === 'veterinarian' && (
+                      <section className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 md:p-5 space-y-4">
+                        <div>
+                          <h4 className="text-base font-semibold text-slate-800">Veterinary Profile</h4>
+                          <p className="text-xs text-slate-500">These details will be shown in pet owner vet directory.</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">Specialty *</Label>
+                            <Input
+                              value={vetForm.specialty}
+                              onChange={(e) => setVetForm((prev) => ({ ...prev, specialty: e.target.value }))}
+                              placeholder="Small Animal Medicine"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">Experience (Years)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={vetForm.experienceYears}
+                              onChange={(e) => setVetForm((prev) => ({ ...prev, experienceYears: e.target.value }))}
+                              placeholder="5"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">Clinic Name</Label>
+                            <Input
+                              value={vetForm.clinicName}
+                              onChange={(e) => setVetForm((prev) => ({ ...prev, clinicName: e.target.value }))}
+                              placeholder="Healthy Paws Clinic"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">City</Label>
+                            <Input
+                              value={vetForm.city}
+                              onChange={(e) => setVetForm((prev) => ({ ...prev, city: e.target.value }))}
+                              placeholder="Noida"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">Consultation Fee (INR)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              step="1"
+                              value={vetForm.consultationFee}
+                              onChange={(e) => setVetForm((prev) => ({ ...prev, consultationFee: e.target.value }))}
+                              placeholder="500"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">Availability</Label>
+                            <select
+                              value={vetForm.availability}
+                              onChange={(e) =>
+                                setVetForm((prev) => ({
+                                  ...prev,
+                                  availability: e.target.value as VetRegistrationForm['availability'],
+                                }))
+                              }
+                              className="mt-1.5 w-full h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                            >
+                              <option value="Available">Available</option>
+                              <option value="Busy">Busy</option>
+                              <option value="On Leave">On Leave</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-sm font-medium text-slate-700">Clinic Address</Label>
+                          <Input
+                            value={vetForm.clinicAddress}
+                            onChange={(e) => setVetForm((prev) => ({ ...prev, clinicAddress: e.target.value }))}
+                            placeholder="Sector 18, Noida"
+                            className="mt-1.5 h-11 rounded-xl border-slate-200"
+                          />
+                        </div>
+
+                        <div>
+                          <Label className="text-sm font-medium text-slate-700">Profile Description</Label>
+                          <Textarea
+                            value={vetForm.description}
+                            onChange={(e) => setVetForm((prev) => ({ ...prev, description: e.target.value }))}
+                            placeholder="Add consultation style, services, and expertise"
+                            className="mt-1.5 min-h-24 rounded-xl border-slate-200"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-[1fr_180px] gap-4 items-start">
+                          <div>
+                            <Label htmlFor="vet-image" className="text-sm font-medium text-slate-700">Profile Photo</Label>
+                            <Input
+                              id="vet-image"
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => setVetImageFile(e.target.files?.[0] || null)}
+                              className="mt-1.5"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">JPG/PNG up to 5MB. You can change or remove anytime before submit.</p>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-xs text-slate-500 mb-2">Image Preview</p>
+                            <div className="relative w-full h-36 rounded-lg overflow-hidden bg-slate-100">
+                              {vetImagePreview ? (
+                                <Image src={vetImagePreview} alt="Vet preview" fill className="object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
+                                  <Upload className="w-5 h-5 mb-2" />
+                                  <span className="text-xs">No photo selected</span>
+                                </div>
+                              )}
+                            </div>
+                            {vetImageFile && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="mt-2 w-full bg-transparent"
+                                onClick={() => setVetImageFile(null)}
+                              >
+                                <X className="mr-2 h-4 w-4" /> Remove
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                    <div className="flex items-start gap-2 pt-1">
                       <input type="checkbox" id="terms" required className="mt-1 rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
                       <label htmlFor="terms" className="text-sm text-slate-500">
                         I agree to the <Link href="#" className="text-teal-600 hover:underline">Terms of Service</Link> and <Link href="#" className="text-teal-600 hover:underline">Privacy Policy</Link>
                       </label>
                     </div>
-                    <Button 
-                      type="submit" 
+
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
                       className="w-full h-11 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-semibold shadow-lg shadow-teal-200/50 transition-all hover:shadow-xl"
                     >
-                      Create Account
+                      {isSubmitting ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Creating account...
+                        </span>
+                      ) : (
+                        'Create Account'
+                      )}
                     </Button>
                   </form>
                 </div>
 
-                {/* Login Link */}
                 <p className="text-center text-slate-500">
                   Already have an account?{' '}
                   <Link href="/" className="text-teal-600 font-semibold hover:text-teal-700 transition-colors">

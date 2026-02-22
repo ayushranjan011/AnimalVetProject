@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -16,7 +16,9 @@ import {
   Eye,
   Phone,
 } from 'lucide-react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { useAuth } from '@/contexts/auth-context'
+import { supabase } from '@/lib/supabase'
 
 interface VetAppointment {
   id: string
@@ -32,89 +34,188 @@ interface VetAppointment {
   ownerEmail?: string
 }
 
-// Mock data
-const mockAppointments: VetAppointment[] = [
-  {
-    id: '1',
-    petName: 'Max',
-    ownerName: 'John Doe',
-    type: 'Online',
-    date: '2024-12-20',
-    time: '2:00 PM',
-    status: 'Pending',
-    mode: 'Online',
-    notes: 'Regular health checkup and weight monitoring',
-    ownerPhone: '+1 (555) 123-4567',
-    ownerEmail: 'john@example.com',
-  },
-  {
-    id: '2',
-    petName: 'Luna',
-    ownerName: 'Jane Smith',
-    type: 'In-clinic',
-    date: '2024-12-22',
-    time: '10:30 AM',
-    status: 'Pending',
-    mode: 'In-clinic',
-    notes: 'Annual vaccination booster',
-    ownerPhone: '+1 (555) 987-6543',
-    ownerEmail: 'jane@example.com',
-  },
-  {
-    id: '3',
-    petName: 'Buddy',
-    ownerName: 'Bob Johnson',
-    type: 'Online',
-    date: '2024-12-25',
-    time: '4:00 PM',
-    status: 'Approved',
-    mode: 'Online',
-    notes: 'Follow-up consultation',
-    ownerPhone: '+1 (555) 456-7890',
-    ownerEmail: 'bob@example.com',
-  },
-]
-
 interface VetAppointmentPanelProps {
   onVideoCallInitiate?: (appointmentId: string) => void
 }
 
+const normalizeStatus = (status: unknown): VetAppointment['status'] => {
+  if (status === 'Approved' || status === 'Rejected' || status === 'Completed' || status === 'Pending') {
+    return status
+  }
+  if (status === 'Confirmed') return 'Approved'
+  if (status === 'Cancelled') return 'Rejected'
+  return 'Pending'
+}
+
+const normalizeType = (mode: unknown, type: unknown): VetAppointment['type'] => {
+  if (mode === 'Online' || type === 'Online') {
+    return 'Online'
+  }
+  return 'In-clinic'
+}
+
+const formatSupabaseError = (error: any) => {
+  if (!error) return 'Unknown error'
+  const parts = [error?.message, error?.details, error?.hint, error?.code]
+    .filter(Boolean)
+    .map((item) => String(item))
+  return parts.length > 0 ? parts.join(' | ') : JSON.stringify(error)
+}
+
+const isMissingColumnError = (error: any, columnName?: string) => {
+  const text = formatSupabaseError(error).toLowerCase()
+  if (columnName) {
+    return text.includes(columnName.toLowerCase())
+  }
+  return error?.code === 'PGRST204' || error?.code === '42703' || text.includes('column')
+}
+
+const isSetupPendingError = (error: any) => {
+  const text = formatSupabaseError(error).toLowerCase()
+  return (
+    text.includes('permission denied') ||
+    text.includes('does not exist') ||
+    text.includes('relation') ||
+    text.includes('schema cache') ||
+    text.includes('rls')
+  )
+}
+
 export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointmentPanelProps) {
-  const [appointments, setAppointments] = useState<VetAppointment[]>(mockAppointments)
+  const { user } = useAuth()
+  const [appointments, setAppointments] = useState<VetAppointment[]>([])
+  const [loading, setLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'completed'>('all')
   const [selectedAppointment, setSelectedAppointment] = useState<VetAppointment | null>(null)
   const [detailsModalOpen, setDetailsModalOpen] = useState(false)
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
 
+  useEffect(() => {
+    const fetchAppointments = async () => {
+      if (!user?.id) {
+        setAppointments([])
+        return
+      }
+
+      setLoading(true)
+      setErrorMessage('')
+      let query = await supabase
+        .from('appointments')
+        .select('*')
+        .order('date', { ascending: true })
+
+      if (query.error && isMissingColumnError(query.error, 'date')) {
+        query = await supabase
+          .from('appointments')
+          .select('*')
+          .order('created_at', { ascending: true })
+      }
+
+      if (query.error && isMissingColumnError(query.error, 'created_at')) {
+        query = await supabase
+          .from('appointments')
+          .select('*')
+      }
+
+      setLoading(false)
+
+      const { data, error } = query
+
+      if (error) {
+        const formattedError = formatSupabaseError(error)
+        if (isSetupPendingError(error)) {
+          console.warn('Vet appointments setup pending:', formattedError)
+          setErrorMessage('Appointments database setup pending. Please configure table/policies.')
+        } else {
+          console.warn('Failed to fetch vet appointments:', formattedError)
+          setErrorMessage('Could not load appointments.')
+        }
+        setAppointments([])
+        return
+      }
+
+      const normalizedVetName = user.name?.trim().toLowerCase() || ''
+      const vetNameVariants = [normalizedVetName, normalizedVetName ? `dr. ${normalizedVetName}` : ''].filter(Boolean)
+
+      const ownedRows = (data || []).filter((row: any) => {
+        const rowVetId = row?.vet_id ? String(row.vet_id) : ''
+        if (rowVetId) {
+          return rowVetId === user.id
+        }
+
+        const rowVetName = typeof row?.vet_name === 'string' ? row.vet_name.trim().toLowerCase() : ''
+        if (!rowVetName || vetNameVariants.length === 0) {
+          return false
+        }
+
+        return vetNameVariants.some((candidate) => rowVetName === candidate || rowVetName.includes(candidate))
+      })
+
+      const mappedAppointments: VetAppointment[] = ownedRows.map((row: any) => ({
+        id: String(row.id),
+        petName: row.pet_name || 'Pet',
+        ownerName: row.owner_name || row.owner_full_name || row.owner_email || 'Pet Owner',
+        type: normalizeType(row.mode, row.type),
+        date: row.date || new Date().toISOString(),
+        time: row.time || 'TBD',
+        status: normalizeStatus(row.status),
+        mode: row.mode || normalizeType(row.mode, row.type),
+        notes: row.notes || 'No notes provided.',
+        ownerPhone: row.owner_phone || undefined,
+        ownerEmail: row.owner_email || undefined,
+      }))
+
+      setAppointments(mappedAppointments)
+    }
+
+    fetchAppointments()
+  }, [user?.id, user?.name])
+
   const filteredAppointments = appointments.filter((apt) => {
     if (filter === 'all') return true
     return apt.status.toLowerCase() === filter
   })
 
-  const handleApproveAppointment = (id: string) => {
-    setAppointments(
-      appointments.map((apt) =>
-        apt.id === id ? { ...apt, status: 'Approved' as const } : apt
-      )
-    )
-    setDetailsModalOpen(false)
+  const updateAppointmentStatus = async (id: string, status: VetAppointment['status']) => {
+    setActionLoadingId(id)
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status })
+      .eq('id', id)
+
+    setActionLoadingId(null)
+
+    if (error) {
+      console.error('Failed to update appointment status:', error)
+      alert(`Could not update appointment: ${error.message}`)
+      return false
+    }
+
+    setAppointments((prev) => prev.map((apt) => (apt.id === id ? { ...apt, status } : apt)))
+    return true
   }
 
-  const handleRejectAppointment = (id: string) => {
-    setAppointments(
-      appointments.map((apt) =>
-        apt.id === id ? { ...apt, status: 'Rejected' as const } : apt
-      )
-    )
-    setRejectReasonOpen(false)
-    setRejectReason('')
-    setDetailsModalOpen(false)
+  const handleApproveAppointment = async (id: string) => {
+    const updated = await updateAppointmentStatus(id, 'Approved')
+    if (updated) {
+      setDetailsModalOpen(false)
+    }
+  }
+
+  const handleRejectAppointment = async (id: string) => {
+    const updated = await updateAppointmentStatus(id, 'Rejected')
+    if (updated) {
+      setRejectReasonOpen(false)
+      setRejectReason('')
+      setDetailsModalOpen(false)
+    }
   }
 
   const handleInitiateVideoCall = (appointmentId: string) => {
     onVideoCallInitiate?.(appointmentId)
-    // This will navigate to video call page
   }
 
   const getStatusColor = (status: string) => {
@@ -169,7 +270,16 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
 
       {/* Appointments List */}
       <div className="space-y-4">
-        {filteredAppointments.length > 0 ? (
+        {loading ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+            <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-600 font-medium text-lg">Loading appointments...</p>
+          </div>
+        ) : errorMessage ? (
+          <div className="bg-white rounded-lg border border-red-200 p-12 text-center">
+            <p className="text-red-600 font-medium text-lg">{errorMessage}</p>
+          </div>
+        ) : filteredAppointments.length > 0 ? (
           filteredAppointments.map((apt) => (
             <div
               key={apt.id}
@@ -241,16 +351,18 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
                     <>
                       <Button
                         onClick={() => handleApproveAppointment(apt.id)}
+                        disabled={actionLoadingId === apt.id}
                         className="bg-green-600 hover:bg-green-700 text-white"
                       >
                         <CheckCircle className="w-4 h-4 mr-2" />
-                        Approve
+                        {actionLoadingId === apt.id ? 'Saving...' : 'Approve'}
                       </Button>
                       <Button
                         onClick={() => {
                           setSelectedAppointment(apt)
                           setRejectReasonOpen(true)
                         }}
+                        disabled={actionLoadingId === apt.id}
                         variant="destructive"
                       >
                         <XCircle className="w-4 h-4 mr-2" />
@@ -352,10 +464,11 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
                 <div className="flex gap-2 pt-4">
                   <Button
                     onClick={() => handleApproveAppointment(selectedAppointment.id)}
+                    disabled={actionLoadingId === selectedAppointment.id}
                     className="bg-green-600 hover:bg-green-700 text-white flex-1"
                   >
                     <CheckCircle className="w-4 h-4 mr-2" />
-                    Approve Appointment
+                    {actionLoadingId === selectedAppointment.id ? 'Saving...' : 'Approve Appointment'}
                   </Button>
                   <Button
                     onClick={() => {
@@ -404,6 +517,7 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
                 </Button>
                 <Button
                   onClick={() => handleRejectAppointment(selectedAppointment.id)}
+                  disabled={actionLoadingId === selectedAppointment.id}
                   variant="destructive"
                   className="flex-1"
                 >

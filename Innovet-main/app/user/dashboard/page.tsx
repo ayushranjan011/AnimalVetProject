@@ -858,15 +858,6 @@ case 'pharmacy':
         {/* Desktop Sidebar */}
         <aside className="hidden lg:flex w-64 flex-col fixed left-0 top-16 bottom-0 bg-white/70 backdrop-blur-xl border-r border-white/50 overflow-y-auto">
           <div className="p-4">
-            <div className="flex items-center gap-3 mb-6 px-2">
-              <Avatar className="w-10 h-10 border-2 border-teal-200">
-                <AvatarFallback className="bg-gradient-to-br from-teal-500 to-cyan-500 text-white">{user?.name?.[0].toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-semibold text-slate-800 text-sm">{user?.name}</p>
-                <p className="text-xs text-slate-500">Pet Owner</p>
-              </div>
-            </div>
             <div className="space-y-1">
               {sidebarItems.map((item) => (
                 <button

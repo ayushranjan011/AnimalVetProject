@@ -23,6 +23,7 @@ import { EmergencySOS } from '@/components/emergency-sos'
 import { PetPassport } from '@/components/pet-passport'
 import BookAppointmentModal from '@/components/BookAppointmentModal'
 import ChatbotPanel from '@/components/ChatbotPanel'
+import DietPlanChatbot from '@/components/DietPlanChatbot'
 import MedicalRecords from '@/components/MedicalRecords'
 import Notifications from '@/components/Notifications'
 import PetNanny from '@/components/PetNanny'
@@ -132,8 +133,15 @@ type VetDirectoryItem = {
   specialty: string
   availability: string
   image: string
-  rating: number
+  rating: number | null
   distance: string
+  city: string
+  clinicName: string
+  clinicAddress: string
+  experienceYears: number | null
+  consultationFee: number | null
+  phone: string
+  email: string
   descriptions: string
   prescriptions: string[]
 }
@@ -146,6 +154,37 @@ const mapToUsersRole = (role: 'user' | 'veterinarian' | 'ngo' | undefined): 'pet
   return 'pet_owner'
 }
 
+const isMissingColumnError = (error: any) => {
+  const message = String(error?.message || '').toLowerCase()
+  const details = String(error?.details || '').toLowerCase()
+  return (
+    error?.code === 'PGRST204' ||
+    error?.code === '42703' ||
+    message.includes('could not find') ||
+    message.includes('column') ||
+    details.includes('column')
+  )
+}
+
+const formatSupabaseError = (error: any) => {
+  if (!error) return 'Unknown error'
+  const parts = [error?.message, error?.details, error?.hint, error?.code]
+    .filter(Boolean)
+    .map((item) => String(item))
+  return parts.length > 0 ? parts.join(' | ') : JSON.stringify(error)
+}
+
+const isSetupPendingError = (error: any) => {
+  const text = formatSupabaseError(error).toLowerCase()
+  return (
+    text.includes('permission denied') ||
+    text.includes('does not exist') ||
+    text.includes('relation') ||
+    text.includes('schema cache') ||
+    text.includes('rls')
+  )
+}
+
 export default function UserDashboard() {
   const { user, logout } = useAuth()
   const router = useRouter()
@@ -155,7 +194,7 @@ export default function UserDashboard() {
   const [activeSection, setActiveSection] = useState<ActiveSection>('home')
   const [feedback, setFeedback] = useState('')
   const [bookingModalOpen, setBookingModalOpen] = useState(false)
-  const [selectedVet, setSelectedVet] = useState<any>(null)
+  const [selectedVet, setSelectedVet] = useState<VetDirectoryItem | null>(null)
   const [showAddPetPopup, setShowAddPetPopup] = useState(false)
   const [petModalMode, setPetModalMode] = useState<'add' | 'edit'>('add')
   const [editingPetId, setEditingPetId] = useState<string | null>(null)
@@ -172,6 +211,7 @@ export default function UserDashboard() {
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [vetDietPlans, setVetDietPlans] = useState<any[]>([])
   const [dietPlansLoading, setDietPlansLoading] = useState(false)
+  const [dietPlansError, setDietPlansError] = useState('')
   const [newPetForm, setNewPetForm] = useState({
     name: '',
     species: 'Dog',
@@ -218,7 +258,7 @@ export default function UserDashboard() {
     }
   }, [searchParams])
 
-  const openBookingModal = (vet: any) => {
+  const openBookingModal = (vet: VetDirectoryItem) => {
     setSelectedVet(vet)
     setBookingModalOpen(true)
   }
@@ -250,6 +290,16 @@ export default function UserDashboard() {
   })
 
   const selectedPet = myPets.find((pet) => pet.id === selectedPetId)
+  const selectedPetWeightKgRaw =
+    selectedPet && selectedPet.weight !== 'Not specified'
+      ? Number(selectedPet.weight)
+      : null
+  const selectedPetWeightKg =
+    selectedPetWeightKgRaw !== null &&
+    Number.isFinite(selectedPetWeightKgRaw) &&
+    selectedPetWeightKgRaw > 0
+      ? selectedPetWeightKgRaw
+      : null
 
   useEffect(() => {
     if (!petImageFile) {
@@ -339,10 +389,27 @@ export default function UserDashboard() {
   useEffect(() => {
     const fetchVets = async () => {
       setVetsLoading(true)
-      const { data, error } = await supabase
+      const primaryQuery = await supabase
         .from('profiles')
-        .select('id, name, role')
+        .select(
+          'id, email, name, role, phone, vet_specialty, vet_experience_years, vet_clinic_name, vet_clinic_address, vet_city, vet_consultation_fee, vet_availability, vet_description, vet_image_url, vet_rating'
+        )
         .eq('role', 'veterinarian')
+        .order('created_at', { ascending: false })
+
+      let data: any[] | null = primaryQuery.data as any[] | null
+      let error: any = primaryQuery.error
+
+      if (error && isMissingColumnError(error)) {
+        const fallback = await supabase
+          .from('profiles')
+          .select('id, email, name, role')
+          .eq('role', 'veterinarian')
+          .order('created_at', { ascending: false })
+
+        data = fallback.data as any[] | null
+        error = fallback.error
+      }
 
       setVetsLoading(false)
 
@@ -352,15 +419,26 @@ export default function UserDashboard() {
         return
       }
 
-      const mappedVets: VetDirectoryItem[] = (data || []).map((row: any, index: number) => ({
+      const mappedVets: VetDirectoryItem[] = (data || []).map((row: any) => ({
         id: String(row.id),
-        name: row.name || `Veterinarian ${index + 1}`,
-        specialty: 'General Practice',
-        availability: 'Available',
-        image: ['/images/vet-1.jpg', '/images/vet-2.jpg', '/images/vet-3.jpg'][index % 3],
-        rating: 4.7,
-        distance: 'Nearby',
-        descriptions: `${row.name || 'This veterinarian'} is available for consultation and preventive pet care.`,
+        name: row.name || (typeof row.email === 'string' ? row.email.split('@')[0] : 'Veterinarian'),
+        specialty: row.vet_specialty || 'Specialty not provided',
+        availability: row.vet_availability || 'Not specified',
+        image: row.vet_image_url || '/placeholder.svg',
+        rating: typeof row.vet_rating === 'number' ? row.vet_rating : null,
+        distance: row.vet_city || row.vet_clinic_address || 'Location not provided',
+        city: row.vet_city || '',
+        clinicName: row.vet_clinic_name || '',
+        clinicAddress: row.vet_clinic_address || '',
+        experienceYears:
+          typeof row.vet_experience_years === 'number' ? row.vet_experience_years : null,
+        consultationFee:
+          row.vet_consultation_fee !== null && row.vet_consultation_fee !== undefined
+            ? Number(row.vet_consultation_fee)
+            : null,
+        phone: row.phone || '',
+        email: row.email || '',
+        descriptions: row.vet_description || 'No profile description available yet.',
         prescriptions: [],
       }))
 
@@ -368,7 +446,7 @@ export default function UserDashboard() {
     }
 
     fetchVets()
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     const fetchUnreadNotificationCount = async () => {
@@ -399,24 +477,44 @@ export default function UserDashboard() {
     const fetchDietPlans = async () => {
       if (!petOwnerId) {
         setVetDietPlans([])
+        setDietPlansError('')
         return
       }
 
       setDietPlansLoading(true)
-      const { data, error } = await supabase
+      setDietPlansError('')
+
+      let query = await supabase
         .from('diet_plans')
         .select('*')
         .eq('owner_id', petOwnerId)
         .order('created_at', { ascending: false })
 
+      if (query.error && isMissingColumnError(query.error)) {
+        query = await supabase
+          .from('diet_plans')
+          .select('*')
+          .eq('owner_id', petOwnerId)
+      }
+
       setDietPlansLoading(false)
 
+      const { data, error } = query
+
       if (error) {
-        console.error('Failed to fetch diet plans:', error)
+        const formattedError = formatSupabaseError(error)
+        if (isSetupPendingError(error)) {
+          console.warn('Diet plans setup pending:', formattedError)
+          setDietPlansError('Diet plans database setup pending. Please configure table/policies.')
+        } else {
+          console.warn('Failed to fetch diet plans:', formattedError)
+          setDietPlansError('Could not load diet plans.')
+        }
         setVetDietPlans([])
         return
       }
 
+      setDietPlansError('')
       setVetDietPlans(data || [])
     }
 
@@ -668,7 +766,9 @@ export default function UserDashboard() {
     return (
       vet.name.toLowerCase().includes(term) ||
       vet.specialty.toLowerCase().includes(term) ||
-      vet.descriptions.toLowerCase().includes(term)
+      vet.descriptions.toLowerCase().includes(term) ||
+      vet.city.toLowerCase().includes(term) ||
+      vet.clinicName.toLowerCase().includes(term)
     )
   })
 
@@ -793,20 +893,7 @@ phImage: "/images/img/smartchemist.webp"
       case 'ai-chatbot':
         return <ChatbotPanel />
       case 'medical-records':
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
-                <FileText className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-slate-800">Medical Records</h2>
-                <p className="text-sm text-slate-500">Pet health history and records</p>
-              </div>
-            </div>
-            <MedicalRecords />
-          </div>
-        )
+        return <MedicalRecords />
       case 'notifications':
         return (
           <div className="space-y-6">
@@ -853,6 +940,10 @@ phImage: "/images/img/smartchemist.webp"
 
               {dietPlansLoading ? (
                 <div className="text-sm text-slate-500">Loading diet plans...</div>
+              ) : dietPlansError ? (
+                <div className="text-sm text-amber-700 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                  {dietPlansError}
+                </div>
               ) : vetDietPlans.length > 0 ? (
                 <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {vetDietPlans.map((item, index) => (
@@ -880,18 +971,13 @@ phImage: "/images/img/smartchemist.webp"
               )}
             </section>
 
-            <section className="rounded-2xl bg-white/75 backdrop-blur-sm border border-white/50 p-5 md:p-6">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-                  <Utensils className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">AI Chatbot Powered Diet Plans</h3>
-                  <p className="text-sm text-slate-500">Generate and refine plans using AI assistant</p>
-                </div>
-              </div>
-              <ChatbotPanel />
-            </section>
+            <DietPlanChatbot
+              petName={selectedPet?.name}
+              species={selectedPet?.type}
+              ageYears={selectedPet?.ageYears}
+              weightKg={selectedPetWeightKg}
+            />
+
           </div>
         )
       case 'appointments':
@@ -940,53 +1026,77 @@ phImage: "/images/img/smartchemist.webp"
                 No veterinarians found in database.
               </div>
             ) : filteredVets.map((vet) => (
-              <div key={vet.name} className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
+              <div key={vet.id} className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
                 <div className="flex flex-col md:flex-row gap-6">
                   <div className="flex items-start gap-4">
                     <Avatar className="w-20 h-20 border-4 border-white shadow-lg">
                       <AvatarImage src={vet.image || "/placeholder.svg"} alt={vet.name} />
-                      <AvatarFallback className="bg-gradient-to-br from-teal-500 to-cyan-500 text-white text-xl">{vet.name[4]}</AvatarFallback>
+                      <AvatarFallback className="bg-gradient-to-br from-teal-500 to-cyan-500 text-white text-xl">
+                        {vet.name?.[0]?.toUpperCase() || 'V'}
+                      </AvatarFallback>
                     </Avatar>
                     <div>
                       <h3 className="text-xl font-bold text-slate-800">{vet.name}</h3>
                       <p className="text-slate-500">{vet.specialty}</p>
-                      <div className="flex items-center gap-4 mt-2">
-                        <Badge className="bg-gradient-to-r from-emerald-500 to-teal-500 border-0">{vet.availability}</Badge>
-                        <span className="flex items-center text-sm text-amber-600">
-                          <Star className="w-4 h-4 fill-amber-400 mr-1" />{vet.rating}
-                        </span>
-                        <span className="flex items-center text-sm text-slate-400">
-                          <MapPin className="w-4 h-4 mr-1" />{vet.distance}
-                        </span>
+                      <div className="flex flex-wrap items-center gap-3 mt-2">
+                        <Badge className={vet.availability === 'Available' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 border-0' : 'bg-slate-200 text-slate-700 border-0'}>
+                          {vet.availability}
+                        </Badge>
+                        {vet.rating !== null && (
+                          <span className="flex items-center text-sm text-amber-600">
+                            <Star className="w-4 h-4 fill-amber-400 mr-1" /> {vet.rating.toFixed(1)}
+                          </span>
+                        )}
+                        {vet.city ? (
+                          <span className="flex items-center text-sm text-slate-500">
+                            <MapPin className="w-4 h-4 mr-1" /> {vet.city}
+                          </span>
+                        ) : (
+                          <span className="flex items-center text-sm text-slate-400">
+                            <MapPin className="w-4 h-4 mr-1" /> {vet.distance}
+                          </span>
+                        )}
                       </div>
-                      {/* <p className="flex items-center text-sm text-slate-500 mt-2">
-                        <Phone className="w-4 h-4 mr-2" />{vet.//phone}
-                      </p> */}
+                      {vet.phone && (
+                        <p className="flex items-center text-sm text-slate-600 mt-2">
+                          <Phone className="w-4 h-4 mr-2" /> {vet.phone}
+                        </p>
+                      )}
+                      {vet.email && (
+                        <p className="flex items-center text-sm text-slate-500 mt-1">
+                          <Mail className="w-4 h-4 mr-2" /> {vet.email}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex-1 md:border-l md:pl-6 border-slate-200">
                     <div className="mb-4">
                       <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
-                        <MessageSquare className="w-4 h-4 text-teal-500" /> Descriptions
+                        <MessageSquare className="w-4 h-4 text-teal-500" /> About
                       </h4>
                       <p className="text-sm text-slate-600 bg-teal-50/50 p-3 rounded-xl">{vet.descriptions}</p>
                     </div>
-                    {/* {vet.prescriptions.length > 0 && (
-                      <div>
-                        <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
-                          <Pill className="w-4 h-4 text-cyan-500" /> Active Prescriptions
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {vet.prescriptions.map((rx) => (
-                            <span key={rx} className="px-3 py-1.5 bg-cyan-50 text-cyan-700 rounded-full text-sm font-medium">{rx}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )} */}
+                    <div className="flex flex-wrap gap-2">
+                      {vet.experienceYears !== null && (
+                        <span className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 text-sm">
+                          {vet.experienceYears}+ years experience
+                        </span>
+                      )}
+                      {vet.consultationFee !== null && (
+                        <span className="px-3 py-1.5 rounded-full bg-cyan-50 text-cyan-700 text-sm">
+                          Consultation fee: INR {vet.consultationFee}
+                        </span>
+                      )}
+                      {vet.clinicName && (
+                        <span className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-sm">
+                          {vet.clinicName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-3 mt-4 pt-4 border-t border-slate-100">
-                  <Button 
+                  <Button
                     onClick={() => openBookingModal(vet)}
                     className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
                   >
@@ -1752,15 +1862,6 @@ case 'pharmacy':
         {/* Desktop Sidebar */}
         <aside className="hidden lg:flex w-64 flex-col fixed left-0 top-16 bottom-0 bg-white/70 backdrop-blur-xl border-r border-white/50 overflow-y-auto">
           <div className="p-4">
-            <div className="flex items-center gap-3 mb-6 px-2">
-              <Avatar className="w-10 h-10 border-2 border-teal-200">
-                <AvatarFallback className="bg-gradient-to-br from-teal-500 to-cyan-500 text-white">{user?.name?.[0].toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-semibold text-slate-800 text-sm">{user?.name}</p>
-                <p className="text-xs text-slate-500">Pet Owner</p>
-              </div>
-            </div>
             <div className="space-y-1">
               {sidebarItems.map((item) => (
                 <button

@@ -4,6 +4,17 @@ CREATE TABLE profiles (
   email TEXT NOT NULL,
   name TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('user', 'veterinarian', 'ngo')),
+  phone TEXT,
+  vet_specialty TEXT,
+  vet_experience_years INTEGER CHECK (vet_experience_years >= 0),
+  vet_clinic_name TEXT,
+  vet_clinic_address TEXT,
+  vet_city TEXT,
+  vet_consultation_fee NUMERIC(10,2) CHECK (vet_consultation_fee >= 0),
+  vet_availability TEXT CHECK (vet_availability IN ('Available', 'Busy', 'On Leave')),
+  vet_description TEXT,
+  vet_image_url TEXT,
+  vet_rating NUMERIC(2,1) CHECK (vet_rating >= 0 AND vet_rating <= 5),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

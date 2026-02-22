@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { Search, Filter, Eye, Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/contexts/auth-context'
+import { supabase } from '@/lib/supabase'
 
 // Dynamic import for QRCodeCanvas to handle SSR
 const QRCodeCanvas = dynamic(() => import('qrcode.react').then(mod => mod.QRCodeCanvas), { 
@@ -24,75 +26,58 @@ interface MedicalRecord {
   qrCode: string
 }
 
-const mockRecords: MedicalRecord[] = [
-  {
-    id: '1',
-    petName: 'Max',
-    petType: 'Dog',
-    recordType: 'Vaccination',
-    vetName: 'Dr. Sarah Johnson',
-    date: '2024-12-15',
-    status: 'Completed',
-    description: 'Annual rabies vaccination completed',
-    document: 'VAC-2024-001.pdf',
-    qrCode: 'QR-VAC-001'
-  },
-  {
-    id: '2',
-    petName: 'Luna',
-    petType: 'Cat',
-    recordType: 'Prescription',
-    vetName: 'Dr. Michael Chen',
-    date: '2024-12-10',
-    status: 'Completed',
-    description: 'Thyroid medication prescription',
-    document: 'RX-2024-002.pdf',
-    qrCode: 'QR-RX-002'
-  },
-  {
-    id: '3',
-    petName: 'Max',
-    petType: 'Dog',
-    recordType: 'Lab Report',
-    vetName: 'Dr. Sarah Johnson',
-    date: '2024-12-05',
-    status: 'Pending',
-    description: 'Blood work and urinalysis results',
-    document: 'LAB-2024-003.pdf',
-    qrCode: 'QR-LAB-003'
-  },
-  {
-    id: '4',
-    petName: 'Buddy',
-    petType: 'Dog',
-    recordType: 'Vaccination',
-    vetName: 'Dr. Emily Patterson',
-    date: '2024-11-28',
-    status: 'Completed',
-    description: 'DHPP vaccination',
-    document: 'VAC-2024-004.pdf',
-    qrCode: 'QR-VAC-004'
-  },
-  {
-    id: '5',
-    petName: 'Luna',
-    petType: 'Cat',
-    recordType: 'Lab Report',
-    vetName: 'Dr. Michael Chen',
-    date: '2024-11-20',
-    status: 'Completed',
-    description: 'FeLV/FIV test results',
-    document: 'LAB-2024-005.pdf',
-    qrCode: 'QR-LAB-005'
-  }
-]
-
 export default function MedicalRecords() {
+  const { user } = useAuth()
+  const [records, setRecords] = useState<MedicalRecord[]>([])
+  const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<'All' | 'Vaccination' | 'Prescription' | 'Lab Report'>('All')
   const [selectedRecord, setSelectedRecord] = useState<MedicalRecord | null>(null)
 
-  const filteredRecords = mockRecords.filter(record => {
+  useEffect(() => {
+    const fetchRecords = async () => {
+      if (!user?.id) {
+        setRecords([])
+        return
+      }
+
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('medical_records')
+        .select('*')
+        .eq('owner_id', user.id)
+        .order('date', { ascending: false })
+
+      setLoading(false)
+
+      if (error) {
+        console.error('Failed to fetch medical records:', error)
+        setRecords([])
+        return
+      }
+
+      const mapped = (data || []).map((row: any): MedicalRecord => ({
+        id: String(row.id),
+        petName: row.pet_name || 'Pet',
+        petType: row.pet_type || 'Not specified',
+        recordType: ['Vaccination', 'Prescription', 'Lab Report'].includes(row.record_type)
+          ? row.record_type
+          : 'Lab Report',
+        vetName: row.vet_name || 'Veterinarian',
+        date: row.date || row.created_at || new Date().toISOString(),
+        status: row.status === 'Pending' ? 'Pending' : 'Completed',
+        description: row.description || 'No description provided.',
+        document: row.document || row.file_name || 'document.pdf',
+        qrCode: row.qr_code || String(row.id),
+      }))
+
+      setRecords(mapped)
+    }
+
+    fetchRecords()
+  }, [user?.id])
+
+  const filteredRecords = records.filter(record => {
     const matchesSearch = 
       record.petName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       record.vetName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -215,7 +200,13 @@ export default function MedicalRecords() {
           </table>
         </div>
 
-        {filteredRecords.length === 0 && (
+        {loading && (
+          <div className="px-6 py-8 text-center">
+            <p className="text-gray-500">Loading records...</p>
+          </div>
+        )}
+
+        {!loading && filteredRecords.length === 0 && (
           <div className="px-6 py-12 text-center">
             <p className="text-gray-500">No records found matching your criteria</p>
           </div>
@@ -224,7 +215,7 @@ export default function MedicalRecords() {
 
       {/* Results Count */}
       <div className="text-sm text-gray-600">
-        Showing {filteredRecords.length} of {mockRecords.length} records
+        Showing {filteredRecords.length} of {records.length} records
       </div>
 
       {/* Record Detail Modal */}

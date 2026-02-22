@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Bell, AlertCircle, Stethoscope, Calendar, Syringe, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/contexts/auth-context'
+import { supabase } from '@/lib/supabase'
 
 interface Notification {
   id: string
@@ -15,82 +17,12 @@ interface Notification {
   isUserTriggered?: boolean
 }
 
-const mockNotifications: Notification[] = [
-  {
-    id: '1',
-    type: 'sos',
-    title: 'SOS Alert - Max',
-    description: 'Emergency alert triggered by you. Max needs immediate attention.',
-    timestamp: '5 mins ago',
-    isRead: false,
-    petName: 'Max',
-    isUserTriggered: true
-  },
-  {
-    id: '2',
-    type: 'medical',
-    title: 'New Medical Record',
-    description: 'Lab results for Luna have been uploaded by Dr. Michael Chen',
-    timestamp: '1 hour ago',
-    isRead: false,
-    petName: 'Luna'
-  },
-  {
-    id: '3',
-    type: 'appointment',
-    title: 'Appointment Confirmed',
-    description: 'Your appointment with Dr. Sarah Johnson for Max is confirmed for tomorrow at 2:00 PM',
-    timestamp: '2 hours ago',
-    isRead: true,
-    petName: 'Max'
-  },
-  {
-    id: '4',
-    type: 'vaccination',
-    title: 'Vaccination Due',
-    description: 'Buddy is due for annual DHPP vaccination. Schedule an appointment with your vet.',
-    timestamp: '1 day ago',
-    isRead: false,
-    petName: 'Buddy'
-  },
-  {
-    id: '5',
-    type: 'prescription',
-    title: 'Prescription Ready',
-    description: 'Luna\'s thyroid medication prescription is ready for pickup at the pharmacy',
-    timestamp: '2 days ago',
-    isRead: true,
-    petName: 'Luna'
-  },
-  {
-    id: '6',
-    type: 'training',
-    title: 'Training Session Scheduled',
-    description: 'New training session scheduled for Max - "Obedience Training" next week',
-    timestamp: '3 days ago',
-    isRead: true,
-    petName: 'Max'
-  },
-  {
-    id: '7',
-    type: 'sos',
-    title: 'SOS Alert - Luna',
-    description: 'Emergency alert triggered by you. Luna requires immediate care.',
-    timestamp: '5 days ago',
-    isRead: true,
-    petName: 'Luna',
-    isUserTriggered: true
-  },
-  {
-    id: '8',
-    type: 'appointment',
-    title: 'Appointment Reminder',
-    description: 'Reminder: Your appointment with Dr. Emily Patterson for Buddy is in 3 days',
-    timestamp: '1 week ago',
-    isRead: true,
-    petName: 'Buddy'
-  }
-]
+const formatNotificationTimestamp = (value?: string | null) => {
+  if (!value) return 'Just now'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Just now'
+  return date.toLocaleString()
+}
 
 const getNotificationIcon = (type: string) => {
   switch (type) {
@@ -132,8 +64,51 @@ const getNotificationBgColor = (type: string, isRead: boolean) => {
 }
 
 export default function Notifications() {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
+  const { user } = useAuth()
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<'all' | 'unread' | 'emergency'>('all')
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!user?.id) {
+        setNotifications([])
+        return
+      }
+
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      setLoading(false)
+
+      if (error) {
+        console.error('Failed to fetch notifications:', error)
+        setNotifications([])
+        return
+      }
+
+      const mapped = (data || []).map((row: any): Notification => ({
+        id: String(row.id),
+        type: ['sos', 'medical', 'appointment', 'vaccination', 'prescription', 'training'].includes(row.type)
+          ? row.type
+          : 'medical',
+        title: row.title || 'Notification',
+        description: row.description || '',
+        timestamp: formatNotificationTimestamp(row.created_at),
+        isRead: !!row.is_read,
+        petName: row.pet_name || 'Pet',
+        isUserTriggered: !!row.is_user_triggered,
+      }))
+
+      setNotifications(mapped)
+    }
+
+    fetchNotifications()
+  }, [user?.id])
 
   const filteredNotifications = notifications.filter(notif => {
     if (filter === 'unread') return !notif.isRead
@@ -145,12 +120,16 @@ export default function Notifications() {
   const sosCount = notifications.filter(n => n.type === 'sos' && n.isUserTriggered && !n.isRead).length
 
   const handleMarkAsRead = (id: string) => {
+    supabase.from('notifications').update({ is_read: true }).eq('id', id)
     setNotifications(notifications.map(notif =>
       notif.id === id ? { ...notif, isRead: true } : notif
     ))
   }
 
   const handleMarkAllAsRead = () => {
+    if (user?.id) {
+      supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id).eq('is_read', false)
+    }
     setNotifications(notifications.map(notif => ({ ...notif, isRead: true })))
   }
 
@@ -223,7 +202,11 @@ export default function Notifications() {
 
       {/* Notifications List */}
       <div className="space-y-3">
-        {filteredNotifications.length > 0 ? (
+        {loading ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-600">
+            Loading notifications...
+          </div>
+        ) : filteredNotifications.length > 0 ? (
           filteredNotifications.map((notification) => (
             <div
               key={notification.id}

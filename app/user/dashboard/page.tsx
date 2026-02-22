@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
@@ -23,6 +23,10 @@ import { EmergencySOS } from '@/components/emergency-sos'
 import { PetPassport } from '@/components/pet-passport'
 import BookAppointmentModal from '@/components/BookAppointmentModal'
 import ChatbotPanel from '@/components/ChatbotPanel'
+import MedicalRecords from '@/components/MedicalRecords'
+import Notifications from '@/components/Notifications'
+import PetNanny from '@/components/PetNanny'
+import Appointments from '@/components/Appointments'
 import { useAuth } from '@/contexts/auth-context'
 import { supabase } from '@/lib/supabase'
 import {
@@ -68,7 +72,22 @@ import {
   UserCircle2,
 } from 'lucide-react'
 
-type ActiveSection = 'home' | 'vet-directory' | 'pharmacy' | 'training' | 'ngo' | 'community' | 'ai-chatbot' | 'my-pets' | 'my-profile' | 'settings'
+type ActiveSection =
+  | 'home'
+  | 'vet-directory'
+  | 'pharmacy'
+  | 'training'
+  | 'ngo'
+  | 'community'
+  | 'ai-chatbot'
+  | 'medical-records'
+  | 'notifications'
+  | 'pet-nanny'
+  | 'diet-plans'
+  | 'appointments'
+  | 'my-pets'
+  | 'my-profile'
+  | 'settings'
 
 type PetProfile = {
   id: string
@@ -107,6 +126,18 @@ type PetDbRow = {
   notes: string | null
 }
 
+type VetDirectoryItem = {
+  id: string
+  name: string
+  specialty: string
+  availability: string
+  image: string
+  rating: number
+  distance: string
+  descriptions: string
+  prescriptions: string[]
+}
+
 const mapToUsersRole = (role: 'user' | 'veterinarian' | 'ngo' | undefined): 'pet_owner' | 'veterinarian' | 'ngo' => {
   if (role === 'veterinarian' || role === 'ngo') {
     return role
@@ -118,6 +149,7 @@ const mapToUsersRole = (role: 'user' | 'veterinarian' | 'ngo' | undefined): 'pet
 export default function UserDashboard() {
   const { user, logout } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [showPassport, setShowPassport] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<ActiveSection>('home')
@@ -134,6 +166,12 @@ export default function UserDashboard() {
   const [selectedPetId, setSelectedPetId] = useState('')
   const [petsLoading, setPetsLoading] = useState(false)
   const [petOwnerId, setPetOwnerId] = useState<string | null>(null)
+  const [vets, setVets] = useState<VetDirectoryItem[]>([])
+  const [vetsLoading, setVetsLoading] = useState(false)
+  const [vetSearchTerm, setVetSearchTerm] = useState('')
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
+  const [vetDietPlans, setVetDietPlans] = useState<any[]>([])
+  const [dietPlansLoading, setDietPlansLoading] = useState(false)
   const [newPetForm, setNewPetForm] = useState({
     name: '',
     species: 'Dog',
@@ -154,6 +192,31 @@ export default function UserDashboard() {
     logout()
     router.push('/')
   }
+
+  useEffect(() => {
+    const section = searchParams.get('section')
+    const allowedSections: ActiveSection[] = [
+      'home',
+      'vet-directory',
+      'pharmacy',
+      'training',
+      'ngo',
+      'community',
+      'ai-chatbot',
+      'medical-records',
+      'notifications',
+      'pet-nanny',
+      'diet-plans',
+      'appointments',
+      'my-pets',
+      'my-profile',
+      'settings',
+    ]
+
+    if (section && allowedSections.includes(section as ActiveSection)) {
+      setActiveSection(section as ActiveSection)
+    }
+  }, [searchParams])
 
   const openBookingModal = (vet: any) => {
     setSelectedVet(vet)
@@ -272,6 +335,93 @@ export default function UserDashboard() {
 
     resolveOwnerId()
   }, [user?.id, user?.email, user?.name, user?.role])
+
+  useEffect(() => {
+    const fetchVets = async () => {
+      setVetsLoading(true)
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, role')
+        .eq('role', 'veterinarian')
+
+      setVetsLoading(false)
+
+      if (error) {
+        console.error('Failed to fetch veterinarians:', error)
+        setVets([])
+        return
+      }
+
+      const mappedVets: VetDirectoryItem[] = (data || []).map((row: any, index: number) => ({
+        id: String(row.id),
+        name: row.name || `Veterinarian ${index + 1}`,
+        specialty: 'General Practice',
+        availability: 'Available',
+        image: ['/images/vet-1.jpg', '/images/vet-2.jpg', '/images/vet-3.jpg'][index % 3],
+        rating: 4.7,
+        distance: 'Nearby',
+        descriptions: `${row.name || 'This veterinarian'} is available for consultation and preventive pet care.`,
+        prescriptions: [],
+      }))
+
+      setVets(mappedVets)
+    }
+
+    fetchVets()
+  }, [])
+
+  useEffect(() => {
+    const fetchUnreadNotificationCount = async () => {
+      if (!user?.id) {
+        setUnreadNotificationCount(0)
+        return
+      }
+
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false)
+
+      if (error) {
+        console.error('Failed to fetch unread notification count:', error)
+        setUnreadNotificationCount(0)
+        return
+      }
+
+      setUnreadNotificationCount(count || 0)
+    }
+
+    fetchUnreadNotificationCount()
+  }, [user?.id, activeSection])
+
+  useEffect(() => {
+    const fetchDietPlans = async () => {
+      if (!petOwnerId) {
+        setVetDietPlans([])
+        return
+      }
+
+      setDietPlansLoading(true)
+      const { data, error } = await supabase
+        .from('diet_plans')
+        .select('*')
+        .eq('owner_id', petOwnerId)
+        .order('created_at', { ascending: false })
+
+      setDietPlansLoading(false)
+
+      if (error) {
+        console.error('Failed to fetch diet plans:', error)
+        setVetDietPlans([])
+        return
+      }
+
+      setVetDietPlans(data || [])
+    }
+
+    fetchDietPlans()
+  }, [petOwnerId])
 
   useEffect(() => {
     const fetchPets = async () => {
@@ -512,42 +662,15 @@ export default function UserDashboard() {
     { id: 'community' as const, label: 'Community', icon: Users },
   ]
 
-  const vets = [
-    {
-      name: 'Dr. Sarah Johnson',
-      specialty: 'General Practice',
-      availability: 'Available Now',
-      image: '/images/vet-1.jpg',
-      rating: 4.9,
-      distance: '1.2 km',
-      //phone: '+1 (555) 123-4567',
-      descriptions: 'Dr. Sarah Johnson is an experienced general practitioner providing routine checkups, preventive care, and treatment for common health conditions. She focuses on compassionate, patient-centered care to ensure overall well-being.',
-      prescriptions: ['Heartgard Plus', 'Frontline'],
-    },
-    {
-      name: 'Dr. Michael Chen',
-      specialty: 'Surgery Specialist',
-      availability: 'Available Today',
-      image: '/images/vet-2.jpg',
-      rating: 4.8,
-      distance: '2.5 km',
-      //phone: '+1 (555) 234-5678',
-      descriptions: 'Dr. Michael Chen offers reliable and compassionate medical care, including regular health checkups, diagnosis, and treatment. He believes in clear communication and personalized care for every patient.',
-      prescriptions: ['Metacam', 'Clavamox'],
-    },
-    {
-
-      name: 'Dr. Emily Rodriguez',
-      specialty: 'Emergency Care',
-      availability: 'On Call 24/7',
-      image: '/images/vet-3.jpg',
-      rating: 4.9,
-      distance: '0.8 km',
-      //phone: '+1 (555) 345-6789',
-      descriptions: 'Dr. Emily Rodriguez provides comprehensive veterinary care, including health checkups, preventive treatments, and guidance for maintaining your pet’s overall health and happiness.',
-      prescriptions: [],
-    },
-  ]
+  const filteredVets = vets.filter((vet) => {
+    const term = vetSearchTerm.trim().toLowerCase()
+    if (!term) return true
+    return (
+      vet.name.toLowerCase().includes(term) ||
+      vet.specialty.toLowerCase().includes(term) ||
+      vet.descriptions.toLowerCase().includes(term)
+    )
+  })
 
 const pharmacies = [
     {
@@ -656,19 +779,136 @@ phImage: "/images/img/smartchemist.webp"
 
   const sidebarItems = [
     { icon: MessageSquare, label: 'AI Chatbot', action: () => setActiveSection('ai-chatbot') },
-    { icon: FileText, label: 'Medical Records', action: () => router.push('/user/medical-records') },
+    { icon: FileText, label: 'Medical Records', action: () => setActiveSection('medical-records') },
     { icon: QrCode, label: 'Pet Passport', action: () => setShowPassport(true) },
     { icon: PawPrint, label: 'My Pets', action: () => setActiveSection('my-pets') },
-    { icon: Bell, label: 'Notifications', action: () => router.push('/user/notifications') },
-    { icon: Baby, label: 'Pet Nanny', action: () => router.push('/user/pet-nanny') },
-    { icon: Utensils, label: 'Diet Plans', action: () => {} },
-    { icon: Calendar, label: 'Appointments', action: () => router.push('/user/appointments') },
+    { icon: Bell, label: 'Notifications', action: () => setActiveSection('notifications') },
+    { icon: Baby, label: 'Pet Nanny', action: () => setActiveSection('pet-nanny') },
+    { icon: Utensils, label: 'Diet Plans', action: () => setActiveSection('diet-plans') },
+    { icon: Calendar, label: 'Appointments', action: () => setActiveSection('appointments') },
   ]
 
   const renderContent = () => {
     switch (activeSection) {
       case 'ai-chatbot':
         return <ChatbotPanel />
+      case 'medical-records':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
+                <FileText className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Medical Records</h2>
+                <p className="text-sm text-slate-500">Pet health history and records</p>
+              </div>
+            </div>
+            <MedicalRecords />
+          </div>
+        )
+      case 'notifications':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                <Bell className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Notifications</h2>
+                <p className="text-sm text-slate-500">Updates and reminders</p>
+              </div>
+            </div>
+            <Notifications />
+          </div>
+        )
+      case 'pet-nanny':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center">
+                <Baby className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Pet Nanny Finder</h2>
+                <p className="text-sm text-slate-500">Find trusted pet care near you</p>
+              </div>
+            </div>
+            <PetNanny />
+          </div>
+        )
+      case 'diet-plans':
+        return (
+          <div className="space-y-8">
+            <section className="rounded-2xl bg-white/75 backdrop-blur-sm border border-white/50 p-5 md:p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Doctor Recommended Diet Plans</h3>
+                  <p className="text-sm text-slate-500">As per vet guidance</p>
+                </div>
+              </div>
+
+              {dietPlansLoading ? (
+                <div className="text-sm text-slate-500">Loading diet plans...</div>
+              ) : vetDietPlans.length > 0 ? (
+                <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {vetDietPlans.map((item, index) => (
+                    <div key={item.id || index} className="p-4 rounded-xl border border-teal-100 bg-teal-50/40">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="font-semibold text-slate-800">{item.pet_name || item.pet_type || 'Pet'}</p>
+                        <Badge className="bg-teal-600 text-white border-0">Vet Guided</Badge>
+                      </div>
+                      <p className="text-sm text-slate-700 mb-2">
+                        <span className="font-medium">Plan:</span> {item.plan || item.diet_plan || 'Plan not provided'}
+                      </p>
+                      <p className="text-sm text-slate-600 mb-2">
+                        <span className="font-medium">Care Notes:</span> {item.notes || item.care_notes || 'No notes provided'}
+                      </p>
+                      <p className="text-xs text-teal-700 font-medium">
+                        {item.next_review || item.review_date || 'Review schedule not available'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500 rounded-xl border border-slate-200 bg-white/70 p-4">
+                  No vet-guided diet plans found in database yet.
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl bg-white/75 backdrop-blur-sm border border-white/50 p-5 md:p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
+                  <Utensils className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">AI Chatbot Powered Diet Plans</h3>
+                  <p className="text-sm text-slate-500">Generate and refine plans using AI assistant</p>
+                </div>
+              </div>
+              <ChatbotPanel />
+            </section>
+          </div>
+        )
+      case 'appointments':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
+                <Calendar className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Appointments</h2>
+                <p className="text-sm text-slate-500">Track and manage consultations</p>
+              </div>
+            </div>
+            <Appointments />
+          </div>
+        )
 
       case 'vet-directory':
         return (
@@ -683,7 +923,23 @@ phImage: "/images/img/smartchemist.webp"
               </div>
             </div>
 
-            {vets.map((vet) => (
+            <div className="p-4 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
+              <Input
+                value={vetSearchTerm}
+                onChange={(event) => setVetSearchTerm(event.target.value)}
+                placeholder="Search vets by name or specialty..."
+              />
+            </div>
+
+            {vetsLoading ? (
+              <div className="p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 text-slate-600">
+                Loading veterinarians...
+              </div>
+            ) : filteredVets.length === 0 ? (
+              <div className="p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 text-slate-600">
+                No veterinarians found in database.
+              </div>
+            ) : filteredVets.map((vet) => (
               <div key={vet.name} className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
                 <div className="flex flex-col md:flex-row gap-6">
                   <div className="flex items-start gap-4">
@@ -1122,7 +1378,7 @@ case 'pharmacy':
                 <Button onClick={() => setActiveSection('my-pets')} className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
                   <PawPrint className="mr-2 h-4 w-4" /> View My Pets
                 </Button>
-                <Button variant="outline" className="bg-transparent" onClick={() => router.push('/user/notifications')}>
+                <Button variant="outline" className="bg-transparent" onClick={() => setActiveSection('notifications')}>
                   <Bell className="mr-2 h-4 w-4" /> Notifications
                 </Button>
               </div>
@@ -1149,7 +1405,7 @@ case 'pharmacy':
               <Button variant="outline" className="w-full justify-start bg-transparent" onClick={() => setActiveSection('my-pets')}>
                 <PawPrint className="mr-2 h-4 w-4" /> Open My Pets
               </Button>
-              <Button variant="outline" className="w-full justify-start bg-transparent" onClick={() => router.push('/user/notifications')}>
+              <Button variant="outline" className="w-full justify-start bg-transparent" onClick={() => setActiveSection('notifications')}>
                 <Bell className="mr-2 h-4 w-4" /> Open Notifications
               </Button>
               <Button variant="outline" className="w-full justify-start border-red-200 text-red-600 hover:bg-red-50 bg-transparent" onClick={handleLogout}>
@@ -1425,9 +1681,19 @@ case 'pharmacy':
             >
               <Plus className="h-5 w-5 text-slate-600" />
             </Button>
-            <Button variant="ghost" size="icon" className="relative hover:bg-teal-100/50">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative hover:bg-teal-100/50"
+              onClick={() => setActiveSection('notifications')}
+              title="Notifications"
+            >
               <Bell className="h-5 w-5 text-slate-600" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+              {unreadNotificationCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-red-500 rounded-full text-[10px] font-semibold text-white flex items-center justify-center leading-none">
+                  {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                </span>
+              )}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -146,6 +147,13 @@ type VetDirectoryItem = {
   prescriptions: string[]
 }
 
+type IncomingVideoCall = {
+  notificationId: string
+  title: string
+  description: string
+  roomID: string
+}
+
 const mapToUsersRole = (role: 'user' | 'veterinarian' | 'ngo' | undefined): 'pet_owner' | 'veterinarian' | 'ngo' => {
   if (role === 'veterinarian' || role === 'ngo') {
     return role
@@ -195,6 +203,34 @@ const getEmailPrefix = (value: unknown) => {
   return normalizeText(prefix)
 }
 
+const resolveRoomIDFromNotification = (row: any) => {
+  const directRoomID =
+    normalizeText(row?.room_id) ||
+    normalizeText(row?.call_room_id) ||
+    normalizeText(row?.video_room_id)
+
+  if (directRoomID) return directRoomID
+
+  const text = `${normalizeText(row?.description)} ${normalizeText(row?.title)}`
+  const encodedMatch = /roomid=([a-zA-Z0-9_-]+)/i.exec(text)
+  if (encodedMatch?.[1]) return encodedMatch[1]
+
+  const labelMatch = /room\s*id\s*[:=]\s*([a-zA-Z0-9_-]+)/i.exec(text)
+  if (labelMatch?.[1]) return labelMatch[1]
+
+  return ''
+}
+
+const isVideoCallNotification = (row: any) => {
+  if (row?.type !== 'appointment') return false
+  const combined = `${normalizeText(row?.title)} ${normalizeText(row?.description)}`.toLowerCase()
+  return (
+    combined.includes('video call') ||
+    combined.includes('join call') ||
+    combined.includes('started your video consultation')
+  )
+}
+
 export default function UserDashboard() {
   const { user, logout } = useAuth()
   const router = useRouter()
@@ -220,6 +256,9 @@ export default function UserDashboard() {
   const [vetSearchTerm, setVetSearchTerm] = useState('')
   const [vetSchemaWarning, setVetSchemaWarning] = useState('')
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
+  const [incomingVideoCall, setIncomingVideoCall] = useState<IncomingVideoCall | null>(null)
+  const [incomingVideoCallOpen, setIncomingVideoCallOpen] = useState(false)
+  const [lastIncomingVideoNotificationId, setLastIncomingVideoNotificationId] = useState('')
   const [vetDietPlans, setVetDietPlans] = useState<any[]>([])
   const [dietPlansLoading, setDietPlansLoading] = useState(false)
   const [dietPlansError, setDietPlansError] = useState('')
@@ -242,6 +281,27 @@ export default function UserDashboard() {
   const handleLogout = () => {
     logout()
     router.push('/')
+  }
+
+  const openIncomingVideoCallPopup = (row: any) => {
+    if (!isVideoCallNotification(row)) return
+
+    const roomID = resolveRoomIDFromNotification(row)
+    if (!roomID) return
+
+    const notificationId = String(row.id || '')
+    if (!notificationId || notificationId === lastIncomingVideoNotificationId) return
+
+    setIncomingVideoCall({
+      notificationId,
+      title: normalizeText(row.title) || 'Video Call Started',
+      description:
+        normalizeText(row.description) ||
+        'Your veterinarian has started the online consultation.',
+      roomID,
+    })
+    setIncomingVideoCallOpen(true)
+    setLastIncomingVideoNotificationId(notificationId)
   }
 
   useEffect(() => {
@@ -534,6 +594,99 @@ export default function UserDashboard() {
 
     fetchUnreadNotificationCount()
   }, [user?.id, activeSection])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const channel = supabase
+      .channel(`dashboard-notifications-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const row = payload.new as any
+          if (!row) return
+
+          if (!row.is_read) {
+            setUnreadNotificationCount((prev) => prev + 1)
+          }
+
+          openIncomingVideoCallPopup(row)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [user?.id, lastIncomingVideoNotificationId])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const pollIncomingVideoCall = async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('type', 'appointment')
+        .eq('is_read', false)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      if (error) {
+        return
+      }
+
+      const latestVideoCallRow = (data || []).find((row) => {
+        const id = String((row as any)?.id || '')
+        if (!id || id === lastIncomingVideoNotificationId) return false
+        return isVideoCallNotification(row) && !!resolveRoomIDFromNotification(row)
+      })
+
+      if (latestVideoCallRow) {
+        openIncomingVideoCallPopup(latestVideoCallRow)
+      }
+    }
+
+    void pollIncomingVideoCall()
+    const intervalId = window.setInterval(() => {
+      void pollIncomingVideoCall()
+    }, 15000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [user?.id, lastIncomingVideoNotificationId])
+
+  const markNotificationAsRead = async (notificationId?: string) => {
+    const id = normalizeText(notificationId)
+    if (!id) return
+
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', id)
+
+    if (error) {
+      console.warn('Failed to mark incoming call notification as read:', error)
+      return
+    }
+
+    setUnreadNotificationCount((prev) => Math.max(0, prev - 1))
+  }
+
+  const handleJoinIncomingCall = async () => {
+    if (!incomingVideoCall?.roomID) return
+    await markNotificationAsRead(incomingVideoCall.notificationId)
+    setIncomingVideoCallOpen(false)
+    router.push(`/user/video-call?roomID=${encodeURIComponent(incomingVideoCall.roomID)}`)
+  }
 
   useEffect(() => {
     const fetchDietPlans = async () => {
@@ -1982,6 +2135,47 @@ case 'pharmacy':
         onClose={closeBookingModal}
         vet={selectedVet}
       />
+
+      {incomingVideoCall && (
+        <Dialog
+          open={incomingVideoCallOpen}
+          onOpenChange={(open) => {
+            setIncomingVideoCallOpen(open)
+            if (!open) {
+              setIncomingVideoCall(null)
+            }
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{incomingVideoCall.title}</DialogTitle>
+              <DialogDescription>{incomingVideoCall.description}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm text-slate-600">
+              <p>Your veterinarian is waiting in the consultation room.</p>
+              <p className="font-medium text-slate-800">Room ID: {incomingVideoCall.roomID}</p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await markNotificationAsRead(incomingVideoCall.notificationId)
+                  setIncomingVideoCallOpen(false)
+                  setIncomingVideoCall(null)
+                }}
+              >
+                Dismiss
+              </Button>
+              <Button
+                className="bg-teal-600 hover:bg-teal-700 text-white"
+                onClick={() => void handleJoinIncomingCall()}
+              >
+                Join Call
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {showAddPetPopup && (
         <div

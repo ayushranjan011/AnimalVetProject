@@ -298,8 +298,8 @@ const [openPatientId, setOpenPatientId] = useState<string | null>(null);
       case 'appointments':
         return (
           <VetAppointmentPanel
-            onVideoCallInitiate={(appointmentId) => {
-              router.push(`/vet/consultation?appointmentId=${appointmentId}`)
+            onVideoCallInitiate={(appointmentId, roomID) => {
+              router.push(`/vet/consultation?appointmentId=${appointmentId}&roomID=${encodeURIComponent(roomID)}`)
             }}
           />
         )

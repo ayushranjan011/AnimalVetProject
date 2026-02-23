@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Bell, AlertCircle, Stethoscope, Calendar, Syringe, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/auth-context'
@@ -15,6 +16,8 @@ interface Notification {
   isRead: boolean
   petName: string
   isUserTriggered?: boolean
+  roomID?: string
+  appointmentId?: string
 }
 
 const formatNotificationTimestamp = (value?: string | null) => {
@@ -23,6 +26,41 @@ const formatNotificationTimestamp = (value?: string | null) => {
   if (Number.isNaN(date.getTime())) return 'Just now'
   return date.toLocaleString()
 }
+
+const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+
+const extractRoomID = (row: any) => {
+  const directRoomID =
+    normalizeText(row?.room_id) ||
+    normalizeText(row?.call_room_id) ||
+    normalizeText(row?.video_room_id)
+
+  if (directRoomID) return directRoomID
+
+  const text = `${normalizeText(row?.description)} ${normalizeText(row?.title)}`
+  const encodedMatch = /roomid=([a-zA-Z0-9_-]+)/i.exec(text)
+  if (encodedMatch?.[1]) return encodedMatch[1]
+
+  const labelMatch = /room\s*id\s*[:=]\s*([a-zA-Z0-9_-]+)/i.exec(text)
+  if (labelMatch?.[1]) return labelMatch[1]
+
+  return ''
+}
+
+const mapNotificationRow = (row: any): Notification => ({
+  id: String(row.id),
+  type: ['sos', 'medical', 'appointment', 'vaccination', 'prescription', 'training'].includes(row.type)
+    ? row.type
+    : 'medical',
+  title: row.title || 'Notification',
+  description: row.description || '',
+  timestamp: formatNotificationTimestamp(row.created_at),
+  isRead: !!row.is_read,
+  petName: row.pet_name || 'Pet',
+  isUserTriggered: !!row.is_user_triggered,
+  roomID: extractRoomID(row) || undefined,
+  appointmentId: normalizeText(row?.appointment_id) || undefined,
+})
 
 const getNotificationIcon = (type: string) => {
   switch (type) {
@@ -65,6 +103,7 @@ const getNotificationBgColor = (type: string, isRead: boolean) => {
 
 export default function Notifications() {
   const { user } = useAuth()
+  const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<'all' | 'unread' | 'emergency'>('all')
@@ -91,23 +130,53 @@ export default function Notifications() {
         return
       }
 
-      const mapped = (data || []).map((row: any): Notification => ({
-        id: String(row.id),
-        type: ['sos', 'medical', 'appointment', 'vaccination', 'prescription', 'training'].includes(row.type)
-          ? row.type
-          : 'medical',
-        title: row.title || 'Notification',
-        description: row.description || '',
-        timestamp: formatNotificationTimestamp(row.created_at),
-        isRead: !!row.is_read,
-        petName: row.pet_name || 'Pet',
-        isUserTriggered: !!row.is_user_triggered,
-      }))
+      const mapped = (data || []).map((row: any) => mapNotificationRow(row))
 
       setNotifications(mapped)
     }
 
     fetchNotifications()
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const channel = supabase
+      .channel(`user-notifications-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const incoming = mapNotificationRow(payload.new)
+          setNotifications((prev) => {
+            if (prev.some((item) => item.id === incoming.id)) return prev
+            return [incoming, ...prev]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const updated = mapNotificationRow(payload.new)
+          setNotifications((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
   }, [user?.id])
 
   const filteredNotifications = notifications.filter(notif => {
@@ -120,10 +189,10 @@ export default function Notifications() {
   const sosCount = notifications.filter(n => n.type === 'sos' && n.isUserTriggered && !n.isRead).length
 
   const handleMarkAsRead = (id: string) => {
-    supabase.from('notifications').update({ is_read: true }).eq('id', id)
-    setNotifications(notifications.map(notif =>
-      notif.id === id ? { ...notif, isRead: true } : notif
-    ))
+    void supabase.from('notifications').update({ is_read: true }).eq('id', id)
+    setNotifications((prev) =>
+      prev.map((notif) => (notif.id === id ? { ...notif, isRead: true } : notif))
+    )
   }
 
   const handleMarkAllAsRead = () => {
@@ -242,6 +311,21 @@ export default function Notifications() {
                 <p className={`text-xs mt-2 ${notification.isRead ? 'text-gray-500' : 'text-gray-600'}`}>
                   {notification.timestamp}
                 </p>
+                {notification.type === 'appointment' && notification.roomID && (
+                  <div className="mt-3">
+                    <Button
+                      size="sm"
+                      className="bg-teal-600 hover:bg-teal-700 text-white"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleMarkAsRead(notification.id)
+                        router.push(`/user/video-call?roomID=${encodeURIComponent(notification.roomID || '')}`)
+                      }}
+                    >
+                      Join Call
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           ))

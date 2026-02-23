@@ -12,6 +12,7 @@ interface Appointment {
   petName: string
   petPhoto: string
   vetName: string
+  vetId?: string
   type: 'Consultation' | 'Vaccination' | 'Training'
   date: string
   time: string
@@ -22,6 +23,18 @@ interface Appointment {
 }
 
 const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+const sanitizeRoomPart = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+const buildAppointmentRoomID = (appointmentId: string, vetIdentifier: string) => {
+  const aptPart = sanitizeRoomPart(appointmentId) || 'appointment'
+  const vetPart = sanitizeRoomPart(vetIdentifier) || 'vet'
+  return `apt_${aptPart}_${vetPart}`
+}
+
 const formatSupabaseError = (error: any) => {
   if (!error) return 'Unknown error'
   const parts = [error?.message, error?.details, error?.hint, error?.code]
@@ -168,6 +181,7 @@ export default function Appointments() {
         petName: row.pet_name || 'Pet',
         petPhoto: row.pet_photo || 'Pet',
         vetName: normalizeText(row.vet_name) || vetNamesById[String(row?.vet_id || '')] || 'Veterinarian',
+        vetId: row?.vet_id ? String(row.vet_id) : undefined,
         type: ['Consultation', 'Vaccination', 'Training'].includes(row.type) ? row.type : 'Consultation',
         date: resolveAppointmentDate(row),
         time: resolveAppointmentTime(row),
@@ -345,9 +359,15 @@ export default function Appointments() {
                     View Details
                   </button>
 
-                  {apt.mode === 'Online' && apt.status === 'Approved' && (
+                  {apt.mode === 'Online' && (apt.status === 'Approved' || apt.status === 'Confirmed') && (
                     <button
-                      onClick={() => router.push(`/user/video-call?roomID=apt_${apt.id}_${apt.vetName.replace(/\s+/g, '_')}`)}
+                      onClick={() =>
+                        router.push(
+                          `/user/video-call?roomID=${encodeURIComponent(
+                            buildAppointmentRoomID(apt.id, apt.vetId || apt.vetName)
+                          )}`
+                        )
+                      }
                       className="px-4 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 font-medium transition text-sm"
                     >
                       <VideoIcon className="w-4 h-4 inline mr-2" />

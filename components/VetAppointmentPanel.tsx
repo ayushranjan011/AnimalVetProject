@@ -24,18 +24,20 @@ interface VetAppointment {
   id: string
   petName: string
   ownerName: string
+  ownerId?: string
   type: 'Online' | 'In-clinic'
   date: string
   time: string
   status: 'Pending' | 'Approved' | 'Rejected' | 'Completed'
   mode: string
+  vetIdentifier: string
   notes: string
   ownerPhone?: string
   ownerEmail?: string
 }
 
 interface VetAppointmentPanelProps {
-  onVideoCallInitiate?: (appointmentId: string) => void
+  onVideoCallInitiate?: (appointmentId: string, roomID: string) => void
 }
 
 const normalizeStatus = (status: unknown): VetAppointment['status'] => {
@@ -110,6 +112,26 @@ const toDbAppointmentStatus = (status: VetAppointment['status']) => {
   }
 }
 
+const sanitizeRoomPart = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+const buildAppointmentRoomID = (appointmentId: string, vetIdentifier: string) => {
+  const aptPart = sanitizeRoomPart(appointmentId) || 'appointment'
+  const vetPart = sanitizeRoomPart(vetIdentifier) || 'vet'
+  return `apt_${aptPart}_${vetPart}`
+}
+
+const isRecoverableNotificationInsertError = (error: any) => {
+  if (!error) return false
+  if (isMissingColumnError(error)) return true
+
+  const text = formatSupabaseError(error).toLowerCase()
+  return error?.code === '23502' || text.includes('null value') || text.includes('not-null')
+}
+
 export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointmentPanelProps) {
   const { user } = useAuth()
   const [appointments, setAppointments] = useState<VetAppointment[]>([])
@@ -121,6 +143,7 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
   const [detailsModalOpen, setDetailsModalOpen] = useState(false)
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [callStartingId, setCallStartingId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchAppointments = async () => {
@@ -187,11 +210,15 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
         id: String(row.id),
         petName: row.pet_name || 'Pet',
         ownerName: row.owner_name || row.owner_full_name || row.owner_email || 'Pet Owner',
+        ownerId: row.owner_id || row.pet_owner_id || row.user_id
+          ? String(row.owner_id || row.pet_owner_id || row.user_id)
+          : undefined,
         type: normalizeType(row.mode, row.type),
         date: resolveAppointmentDate(row),
         time: resolveAppointmentTime(row),
         status: normalizeStatus(row.status),
         mode: row.mode || normalizeType(row.mode, row.type),
+        vetIdentifier: String(row.vet_id || row.vet_name || user.id || user.name || 'vet'),
         notes: row.notes || 'No notes provided.',
         ownerPhone: row.owner_phone || undefined,
         ownerEmail: row.owner_email || undefined,
@@ -244,8 +271,64 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
     }
   }
 
-  const handleInitiateVideoCall = (appointmentId: string) => {
-    onVideoCallInitiate?.(appointmentId)
+  const handleInitiateVideoCall = async (appointmentId: string) => {
+    const appointment = appointments.find((apt) => apt.id === appointmentId)
+    const roomID = buildAppointmentRoomID(
+      appointmentId,
+      appointment?.vetIdentifier || user?.id || user?.name || 'vet'
+    )
+
+    setCallStartingId(appointmentId)
+
+    try {
+      if (appointment?.ownerId) {
+        const title = 'Video Call Started'
+        const description = `Dr. ${user?.name || 'Veterinarian'} has started your video consultation for ${appointment.petName}. roomID=${roomID}`
+        const payloadVariants = [
+          {
+            user_id: appointment.ownerId,
+            type: 'appointment',
+            title,
+            description,
+            is_read: false,
+            pet_name: appointment.petName,
+            appointment_id: appointmentId,
+            room_id: roomID,
+            notification_category: 'video_call',
+          },
+          {
+            user_id: appointment.ownerId,
+            type: 'appointment',
+            title,
+            description,
+            is_read: false,
+            pet_name: appointment.petName,
+          },
+          {
+            user_id: appointment.ownerId,
+            type: 'appointment',
+            title,
+            description,
+          },
+        ]
+
+        let notificationError: any = null
+        for (const payload of payloadVariants) {
+          const { error } = await supabase.from('notifications').insert(payload)
+          notificationError = error
+          if (!notificationError) break
+          if (!isRecoverableNotificationInsertError(notificationError)) break
+        }
+
+        if (notificationError) {
+          console.warn('Could not create video call notification for pet owner:', notificationError)
+        }
+      }
+
+      onVideoCallInitiate?.(appointmentId, roomID)
+    } finally {
+      setCallStartingId(null)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -403,11 +486,12 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
 
                   {apt.status === 'Approved' && apt.type === 'Online' && (
                     <Button
-                      onClick={() => handleInitiateVideoCall(apt.id)}
+                      onClick={() => void handleInitiateVideoCall(apt.id)}
+                      disabled={callStartingId === apt.id}
                       className="bg-teal-500 hover:bg-teal-600 text-white"
                     >
                       <Video className="w-4 h-4 mr-2" />
-                      Start Call
+                      {callStartingId === apt.id ? 'Starting...' : 'Start Call'}
                     </Button>
                   )}
                 </div>

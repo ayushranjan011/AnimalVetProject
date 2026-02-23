@@ -14,7 +14,7 @@ export default function PetNannyPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-cyan-50/40 flex items-center justify-center p-4">
         <div className="text-center">
-          <p className="text-slate-600 mb-4">Please log in to find pet nannies</p>
+          <p className="text-slate-600 mb-4">Please log in to find pet nannies and pet care centers</p>
           <Button onClick={() => router.push('/login')} className="bg-gradient-to-r from-teal-500 to-cyan-500">
             Go to Login
           </Button>
@@ -44,7 +44,7 @@ export default function PetNannyPage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <h1 className="text-xl font-bold bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent">
-            Pet Nanny Finder
+            Pet Nanny & Care Center Finder
           </h1>
         </div>
       </nav>

@@ -26,6 +26,8 @@ interface MedicalRecord {
   qrCode: string
 }
 
+const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+
 export default function MedicalRecords() {
   const { user } = useAuth()
   const [records, setRecords] = useState<MedicalRecord[]>([])
@@ -56,14 +58,65 @@ export default function MedicalRecords() {
         return
       }
 
-      const mapped = (data || []).map((row: any): MedicalRecord => ({
+      const rows = data || []
+      const vetIds = Array.from(
+        new Set(
+          rows
+            .map((row: any) => String(row?.vet_id || '').trim())
+            .filter(Boolean)
+        )
+      )
+
+      const vetNamesById: Record<string, string> = {}
+      if (vetIds.length > 0) {
+        const { data: profileRows, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, name, email')
+          .in('id', vetIds)
+
+        if (profileError) {
+          console.warn('Could not fetch vet names for medical records:', profileError)
+        } else {
+          for (const profileRow of profileRows || []) {
+            const vetId = String((profileRow as any)?.id || '').trim()
+            const vetName = normalizeText((profileRow as any)?.name)
+            const emailPrefix = normalizeText((profileRow as any)?.email).split('@')[0]?.trim() || ''
+            const resolvedName = vetName || emailPrefix
+            if (vetId && resolvedName) {
+              vetNamesById[vetId] = resolvedName
+            }
+          }
+        }
+
+        const unresolvedVetIds = vetIds.filter((vetId) => !vetNamesById[vetId])
+        if (unresolvedVetIds.length > 0) {
+          const { data: usersRows, error: usersError } = await supabase
+            .from('users')
+            .select('id, full_name')
+            .in('id', unresolvedVetIds)
+
+          if (usersError) {
+            console.warn('Could not fetch fallback vet names for medical records:', usersError)
+          } else {
+            for (const usersRow of usersRows || []) {
+              const vetId = String((usersRow as any)?.id || '').trim()
+              const vetName = normalizeText((usersRow as any)?.full_name)
+              if (vetId && vetName) {
+                vetNamesById[vetId] = vetName
+              }
+            }
+          }
+        }
+      }
+
+      const mapped = rows.map((row: any): MedicalRecord => ({
         id: String(row.id),
         petName: row.pet_name || 'Pet',
         petType: row.pet_type || 'Not specified',
         recordType: ['Vaccination', 'Prescription', 'Lab Report'].includes(row.record_type)
           ? row.record_type
           : 'Lab Report',
-        vetName: row.vet_name || 'Veterinarian',
+        vetName: normalizeText(row.vet_name) || vetNamesById[String(row?.vet_id || '')] || 'Veterinarian',
         date: row.date || row.created_at || new Date().toISOString(),
         status: row.status === 'Pending' ? 'Pending' : 'Completed',
         description: row.description || 'No description provided.',

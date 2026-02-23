@@ -185,6 +185,16 @@ const isSetupPendingError = (error: any) => {
   )
 }
 
+const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+
+const getEmailPrefix = (value: unknown) => {
+  const email = normalizeText(value)
+  if (!email) return ''
+
+  const [prefix] = email.split('@')
+  return normalizeText(prefix)
+}
+
 export default function UserDashboard() {
   const { user, logout } = useAuth()
   const router = useRouter()
@@ -419,9 +429,56 @@ export default function UserDashboard() {
         return
       }
 
-      const mappedVets: VetDirectoryItem[] = (data || []).map((row: any) => ({
+      let vetRows = data || []
+      if (vetRows.length === 0) {
+        const { data: usersFallbackRows, error: usersFallbackError } = await supabase
+          .from('users')
+          .select('id, email, full_name, role')
+          .eq('role', 'veterinarian')
+
+        if (usersFallbackError) {
+          console.warn('Could not fetch veterinarians from users fallback:', usersFallbackError)
+        } else if ((usersFallbackRows || []).length > 0) {
+          vetRows = (usersFallbackRows || []).map((row: any) => ({
+            id: row.id,
+            email: row.email,
+            name: row.full_name,
+            role: row.role,
+          }))
+        }
+      }
+
+      const vetIds = vetRows
+        .map((row: any) => String(row.id || ''))
+        .filter(Boolean)
+
+      const fallbackNamesById: Record<string, string> = {}
+      if (vetIds.length > 0) {
+        const { data: usersRows, error: usersError } = await supabase
+          .from('users')
+          .select('id, full_name')
+          .in('id', vetIds)
+
+        if (usersError) {
+          console.warn('Could not fetch fallback vet names from users table:', usersError)
+        } else {
+          for (const usersRow of usersRows || []) {
+            const usersId = String((usersRow as any)?.id || '')
+            const usersName = normalizeText((usersRow as any)?.full_name)
+            if (usersId && usersName) {
+              fallbackNamesById[usersId] = usersName
+            }
+          }
+        }
+      }
+
+      const mappedVets: VetDirectoryItem[] = vetRows.map((row: any) => ({
         id: String(row.id),
-        name: row.name || (typeof row.email === 'string' ? row.email.split('@')[0] : 'Veterinarian'),
+        name:
+          normalizeText(row.name) ||
+          fallbackNamesById[String(row.id)] ||
+          getEmailPrefix(row.email) ||
+          'Veterinarian',
         specialty: row.vet_specialty || 'Specialty not provided',
         availability: row.vet_availability || 'Not specified',
         image: row.vet_image_url || '/placeholder.svg',
@@ -917,8 +974,8 @@ phImage: "/images/img/smartchemist.webp"
                 <Baby className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-slate-800">Pet Nanny Finder</h2>
-                <p className="text-sm text-slate-500">Find trusted pet care near you</p>
+                <h2 className="text-2xl font-bold text-slate-800">Pet Nanny & Care Center Finder</h2>
+                <p className="text-sm text-slate-500">Find trusted pet nannies and pet care centers near you when you are away</p>
               </div>
             </div>
             <PetNanny />

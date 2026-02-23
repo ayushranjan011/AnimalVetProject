@@ -99,8 +99,11 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault()
+    const normalizedName = name.trim()
+    const normalizedEmail = email.trim().toLowerCase()
+    const normalizedPhone = phone.trim()
 
-    if (!selectedRole || !email || !password || !name) {
+    if (!selectedRole || !normalizedEmail || !password || !normalizedName) {
       alert('Please fill in all required fields')
       return
     }
@@ -115,7 +118,7 @@ export default function RegisterPage() {
       return
     }
 
-    if (phone && phone.length !== 10) {
+    if (normalizedPhone && normalizedPhone.length !== 10) {
       alert('Phone number must be exactly 10 digits')
       return
     }
@@ -146,8 +149,8 @@ export default function RegisterPage() {
         vetImageUrl = await uploadVetImage(vetImageFile)
       }
 
-      await signup(email, password, name, selectedRole, {
-        phone,
+      await signup(normalizedEmail, password, normalizedName, selectedRole, {
+        phone: normalizedPhone,
         vetProfile: selectedRole === 'veterinarian'
           ? {
               specialty: vetForm.specialty,

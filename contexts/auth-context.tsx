@@ -25,6 +25,20 @@ const isMissingColumnError = (error: any) => {
   )
 }
 
+const normalizeDisplayName = (name: unknown, email?: string) => {
+  const normalizedName = typeof name === 'string' ? name.trim() : ''
+  if (normalizedName) return normalizedName
+
+  const normalizedEmail = typeof email === 'string' ? email.trim() : ''
+  if (normalizedEmail) {
+    const [prefix] = normalizedEmail.split('@')
+    const normalizedPrefix = prefix?.trim()
+    if (normalizedPrefix) return normalizedPrefix
+  }
+
+  return 'User'
+}
+
 interface User {
   id: string
   email: string
@@ -81,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser({
               id: data.session.user.id,
               email: data.session.user.email || '',
-              name: profile.name,
+              name: normalizeDisplayName(profile.name, data.session.user.email || ''),
               role: profile.role,
             })
           }
@@ -105,9 +119,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ) => {
     setError(null)
     try {
+      const normalizedEmail = email.trim().toLowerCase()
+      const normalizedName = normalizeDisplayName(name, normalizedEmail)
+
       // Sign up with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password,
       })
 
@@ -116,8 +133,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (authData.user) {
         const profilePayload: Record<string, unknown> = {
           id: authData.user.id,
-          email,
-          name,
+          email: normalizedEmail,
+          name: normalizedName,
           role,
         }
 
@@ -154,8 +171,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .from('profiles')
             .insert({
               id: authData.user.id,
-              email,
-              name,
+              email: normalizedEmail,
+              name: normalizedName,
               role,
             })
 
@@ -173,8 +190,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .upsert(
             {
               id: authData.user.id,
-              email,
-              full_name: name,
+              email: normalizedEmail,
+              full_name: normalizedName,
               role: mapToUsersRole(role),
             },
             { onConflict: 'id' }
@@ -184,8 +201,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setUser({
           id: authData.user.id,
-          email,
-          name,
+          email: normalizedEmail,
+          name: normalizedName,
           role,
         })
       }
@@ -221,7 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const loggedInUser: User = {
             id: data.user.id,
             email: data.user.email || '',
-            name: profile.name,
+            name: normalizeDisplayName(profile.name, data.user.email || ''),
             role: profile.role,
           }
 

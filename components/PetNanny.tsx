@@ -102,8 +102,8 @@ export default function PetNanny() {
   return (
     <div className="space-y-8">
       <div className="space-y-2">
-        <h1 className="text-4xl font-bold text-gray-900">Nearby Pet Nannies</h1>
-        <p className="text-gray-600 text-lg">Find trusted caregivers near you</p>
+        <h1 className="text-4xl font-bold text-gray-900">Nearby Pet Nannies & Care Centers</h1>
+        <p className="text-gray-600 text-lg">Find trusted pet nannies and pet care centers for your pet when you are away</p>
         <div className="h-1 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full w-24 mt-4"></div>
       </div>
 
@@ -120,7 +120,7 @@ export default function PetNanny() {
               <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search by name..."
+                placeholder="Search by nanny or center name..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -152,6 +152,7 @@ export default function PetNanny() {
               <option value="all">All Services</option>
               <option value="Day care">Day care</option>
               <option value="Overnight stay">Overnight stay</option>
+              <option value="Pet care center">Pet care center</option>
               <option value="Walking">Walking</option>
               <option value="Training">Training</option>
             </select>
@@ -181,12 +182,12 @@ export default function PetNanny() {
       </div>
 
       <div className="text-sm text-gray-600">
-        Found {filteredNannies.length} pet {filteredNannies.length === 1 ? 'nanny' : 'nannies'}
+        Found {filteredNannies.length} care {filteredNannies.length === 1 ? 'provider' : 'providers'}
       </div>
 
       {loading ? (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-          <p className="text-gray-600 font-medium text-lg">Loading pet nannies...</p>
+          <p className="text-gray-600 font-medium text-lg">Loading pet care providers...</p>
         </div>
       ) : filteredNannies.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -245,7 +246,7 @@ export default function PetNanny() {
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-          <p className="text-gray-600 font-medium text-lg">No pet nannies found nearby</p>
+          <p className="text-gray-600 font-medium text-lg">No pet nannies or care centers found nearby</p>
           <p className="text-gray-500 text-sm mt-2">Try adjusting your filters or search criteria</p>
         </div>
       )}

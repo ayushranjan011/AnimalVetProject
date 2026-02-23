@@ -27,6 +27,28 @@ interface MedicalRecord {
 }
 
 const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+const formatSupabaseError = (error: any) => {
+  if (!error) return 'Unknown error'
+  const parts = [error?.message, error?.details, error?.hint, error?.code]
+    .filter(Boolean)
+    .map((item) => String(item))
+  return parts.length > 0 ? parts.join(' | ') : JSON.stringify(error)
+}
+
+const isMissingColumnError = (error: any, columnName?: string) => {
+  const text = formatSupabaseError(error).toLowerCase()
+  if (columnName) {
+    return text.includes(columnName.toLowerCase())
+  }
+  return error?.code === 'PGRST204' || error?.code === '42703' || text.includes('column')
+}
+
+const normalizeRecordType = (value: unknown): MedicalRecord['recordType'] => {
+  const normalized = String(value || '').toLowerCase()
+  if (normalized === 'vaccination') return 'Vaccination'
+  if (normalized === 'prescription') return 'Prescription'
+  return 'Lab Report'
+}
 
 export default function MedicalRecords() {
   const { user } = useAuth()
@@ -44,13 +66,57 @@ export default function MedicalRecords() {
       }
 
       setLoading(true)
-      const { data, error } = await supabase
+      let query = await supabase
         .from('medical_records')
         .select('*')
         .eq('owner_id', user.id)
         .order('date', { ascending: false })
 
+      if (query.error && isMissingColumnError(query.error, 'owner_id')) {
+        const petsQuery = await supabase
+          .from('pets')
+          .select('id')
+          .eq('owner_id', user.id)
+
+        const petIds = (petsQuery.data || []).map((row: any) => String(row?.id || '')).filter(Boolean)
+        if (petsQuery.error) {
+          setLoading(false)
+          console.error('Failed to fetch pets for medical record fallback:', petsQuery.error)
+          setRecords([])
+          return
+        }
+
+        if (petIds.length === 0) {
+          setLoading(false)
+          setRecords([])
+          return
+        }
+
+        query = await supabase
+          .from('medical_records')
+          .select('*')
+          .in('pet_id', petIds)
+          .order('record_date', { ascending: false })
+      }
+
+      if (query.error && isMissingColumnError(query.error, 'date')) {
+        query = await supabase
+          .from('medical_records')
+          .select('*')
+          .eq('owner_id', user.id)
+          .order('record_date', { ascending: false })
+      }
+
+      if (query.error && isMissingColumnError(query.error, 'record_date')) {
+        query = await supabase
+          .from('medical_records')
+          .select('*')
+          .eq('owner_id', user.id)
+          .order('created_at', { ascending: false })
+      }
+
       setLoading(false)
+      const { data, error } = query
 
       if (error) {
         console.error('Failed to fetch medical records:', error)
@@ -113,11 +179,9 @@ export default function MedicalRecords() {
         id: String(row.id),
         petName: row.pet_name || 'Pet',
         petType: row.pet_type || 'Not specified',
-        recordType: ['Vaccination', 'Prescription', 'Lab Report'].includes(row.record_type)
-          ? row.record_type
-          : 'Lab Report',
+        recordType: normalizeRecordType(row.record_type),
         vetName: normalizeText(row.vet_name) || vetNamesById[String(row?.vet_id || '')] || 'Veterinarian',
-        date: row.date || row.created_at || new Date().toISOString(),
+        date: row.date || row.record_date || row.created_at || new Date().toISOString(),
         status: row.status === 'Pending' ? 'Pending' : 'Completed',
         description: row.description || 'No description provided.',
         document: row.document || row.file_name || 'document.pdf',

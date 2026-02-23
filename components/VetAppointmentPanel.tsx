@@ -42,6 +42,11 @@ const normalizeStatus = (status: unknown): VetAppointment['status'] => {
   if (status === 'Approved' || status === 'Rejected' || status === 'Completed' || status === 'Pending') {
     return status
   }
+  if (status === 'scheduled') return 'Pending'
+  if (status === 'confirmed') return 'Approved'
+  if (status === 'in_progress') return 'Approved'
+  if (status === 'completed') return 'Completed'
+  if (status === 'cancelled' || status === 'no_show') return 'Rejected'
   if (status === 'Confirmed') return 'Approved'
   if (status === 'Cancelled') return 'Rejected'
   return 'Pending'
@@ -79,6 +84,30 @@ const isSetupPendingError = (error: any) => {
     text.includes('schema cache') ||
     text.includes('rls')
   )
+}
+
+const resolveAppointmentDate = (row: any) =>
+  row?.date ||
+  row?.appointment_date ||
+  row?.scheduled_date ||
+  row?.appointment_datetime ||
+  row?.created_at ||
+  new Date().toISOString()
+
+const resolveAppointmentTime = (row: any) =>
+  row?.time || row?.appointment_time || row?.scheduled_time || 'TBD'
+
+const toDbAppointmentStatus = (status: VetAppointment['status']) => {
+  switch (status) {
+    case 'Approved':
+      return 'confirmed'
+    case 'Rejected':
+      return 'cancelled'
+    case 'Completed':
+      return 'completed'
+    default:
+      return 'scheduled'
+  }
 }
 
 export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointmentPanelProps) {
@@ -159,8 +188,8 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
         petName: row.pet_name || 'Pet',
         ownerName: row.owner_name || row.owner_full_name || row.owner_email || 'Pet Owner',
         type: normalizeType(row.mode, row.type),
-        date: row.date || new Date().toISOString(),
-        time: row.time || 'TBD',
+        date: resolveAppointmentDate(row),
+        time: resolveAppointmentTime(row),
         status: normalizeStatus(row.status),
         mode: row.mode || normalizeType(row.mode, row.type),
         notes: row.notes || 'No notes provided.',
@@ -181,9 +210,10 @@ export default function VetAppointmentPanel({ onVideoCallInitiate }: VetAppointm
 
   const updateAppointmentStatus = async (id: string, status: VetAppointment['status']) => {
     setActionLoadingId(id)
+    const dbStatus = toDbAppointmentStatus(status)
     const { error } = await supabase
       .from('appointments')
-      .update({ status })
+      .update({ status: dbStatus })
       .eq('id', id)
 
     setActionLoadingId(null)

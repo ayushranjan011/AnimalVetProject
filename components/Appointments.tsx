@@ -22,6 +22,46 @@ interface Appointment {
 }
 
 const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+const formatSupabaseError = (error: any) => {
+  if (!error) return 'Unknown error'
+  const parts = [error?.message, error?.details, error?.hint, error?.code]
+    .filter(Boolean)
+    .map((item) => String(item))
+  return parts.length > 0 ? parts.join(' | ') : JSON.stringify(error)
+}
+
+const isMissingColumnError = (error: any, columnName?: string) => {
+  const text = formatSupabaseError(error).toLowerCase()
+  if (columnName) {
+    return text.includes(columnName.toLowerCase())
+  }
+  return error?.code === 'PGRST204' || error?.code === '42703' || text.includes('column')
+}
+
+const resolveAppointmentDate = (row: any) =>
+  row?.date ||
+  row?.appointment_date ||
+  row?.scheduled_date ||
+  row?.appointment_datetime ||
+  row?.created_at ||
+  new Date().toISOString()
+
+const resolveAppointmentTime = (row: any) =>
+  row?.time || row?.appointment_time || row?.scheduled_time || 'TBD'
+
+const normalizeAppointmentStatus = (
+  value: unknown
+): 'Pending' | 'Approved' | 'Rejected' | 'Completed' | 'Confirmed' | 'Cancelled' => {
+  if (value === 'Pending' || value === 'Approved' || value === 'Rejected' || value === 'Completed' || value === 'Confirmed' || value === 'Cancelled') {
+    return value
+  }
+  if (value === 'scheduled') return 'Pending'
+  if (value === 'confirmed') return 'Confirmed'
+  if (value === 'in_progress') return 'Approved'
+  if (value === 'completed') return 'Completed'
+  if (value === 'cancelled' || value === 'no_show') return 'Cancelled'
+  return 'Pending'
+}
 
 export default function Appointments() {
   const router = useRouter()
@@ -41,13 +81,29 @@ export default function Appointments() {
       }
 
       setLoading(true)
-      const { data, error } = await supabase
+      let query = await supabase
         .from('appointments')
         .select('*')
-        .eq('owner_id', user.id)
+        .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
         .order('date', { ascending: true })
 
+      if (query.error && isMissingColumnError(query.error, 'date')) {
+        query = await supabase
+          .from('appointments')
+          .select('*')
+          .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
+          .order('created_at', { ascending: true })
+      }
+
+      if (query.error && isMissingColumnError(query.error, 'created_at')) {
+        query = await supabase
+          .from('appointments')
+          .select('*')
+          .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
+      }
+
       setLoading(false)
+      const { data, error } = query
 
       if (error) {
         console.error('Failed to fetch appointments:', error)
@@ -113,12 +169,10 @@ export default function Appointments() {
         petPhoto: row.pet_photo || 'Pet',
         vetName: normalizeText(row.vet_name) || vetNamesById[String(row?.vet_id || '')] || 'Veterinarian',
         type: ['Consultation', 'Vaccination', 'Training'].includes(row.type) ? row.type : 'Consultation',
-        date: row.date || new Date().toISOString(),
-        time: row.time || 'TBD',
+        date: resolveAppointmentDate(row),
+        time: resolveAppointmentTime(row),
         mode: row.mode === 'Online' ? 'Online' : 'In-clinic',
-        status: ['Pending', 'Approved', 'Rejected', 'Completed', 'Confirmed', 'Cancelled'].includes(row.status)
-          ? row.status
-          : 'Pending',
+        status: normalizeAppointmentStatus(row.status),
         notes: row.notes || 'No notes provided.',
         prescription: row.prescription || undefined,
       }))

@@ -191,6 +191,119 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return payload
   }
 
+  const hasTextValue = (value: unknown) => typeof value === 'string' && value.trim().length > 0
+
+  const buildVetBackfillPayload = (params: {
+    profile: any
+    fallbackName: string
+    fallbackPhone?: string
+    fallbackVetProfile?: VetSignupProfile
+  }): Record<string, unknown> => {
+    const { profile, fallbackName, fallbackPhone, fallbackVetProfile } = params
+    const payload: Record<string, unknown> = {}
+
+    if (!hasTextValue(profile?.name) && hasTextValue(fallbackName)) {
+      payload.name = fallbackName.trim()
+    }
+
+    if (!hasTextValue(profile?.phone) && hasTextValue(fallbackPhone)) {
+      payload.phone = fallbackPhone?.trim()
+    }
+
+    if (!fallbackVetProfile) {
+      return payload
+    }
+
+    if (!hasTextValue(profile?.vet_specialty) && hasTextValue(fallbackVetProfile.specialty)) {
+      payload.vet_specialty = fallbackVetProfile.specialty.trim()
+    }
+
+    if (
+      (profile?.vet_experience_years === null || profile?.vet_experience_years === undefined) &&
+      typeof fallbackVetProfile.experienceYears === 'number'
+    ) {
+      payload.vet_experience_years = fallbackVetProfile.experienceYears
+    }
+
+    if (!hasTextValue(profile?.vet_clinic_name) && hasTextValue(fallbackVetProfile.clinicName)) {
+      payload.vet_clinic_name = fallbackVetProfile.clinicName?.trim()
+    }
+
+    if (!hasTextValue(profile?.vet_clinic_address) && hasTextValue(fallbackVetProfile.clinicAddress)) {
+      payload.vet_clinic_address = fallbackVetProfile.clinicAddress?.trim()
+    }
+
+    if (!hasTextValue(profile?.vet_city) && hasTextValue(fallbackVetProfile.city)) {
+      payload.vet_city = fallbackVetProfile.city?.trim()
+    }
+
+    if (
+      (profile?.vet_consultation_fee === null || profile?.vet_consultation_fee === undefined) &&
+      typeof fallbackVetProfile.consultationFee === 'number'
+    ) {
+      payload.vet_consultation_fee = fallbackVetProfile.consultationFee
+    }
+
+    if (!hasTextValue(profile?.vet_availability) && hasTextValue(fallbackVetProfile.availability)) {
+      payload.vet_availability = fallbackVetProfile.availability?.trim()
+    }
+
+    if (!hasTextValue(profile?.vet_description) && hasTextValue(fallbackVetProfile.description)) {
+      payload.vet_description = fallbackVetProfile.description?.trim()
+    }
+
+    if (!hasTextValue(profile?.vet_image_url) && hasTextValue(fallbackVetProfile.imageUrl)) {
+      payload.vet_image_url = fallbackVetProfile.imageUrl?.trim()
+    }
+
+    return payload
+  }
+
+  const backfillVetProfileFromMetadata = async (params: {
+    userId: string
+    profile: any
+    fallbackName: string
+    fallbackPhone?: string
+    fallbackRole: UserRole
+    fallbackVetProfile?: VetSignupProfile
+  }) => {
+    const { userId, profile, fallbackName, fallbackPhone, fallbackRole, fallbackVetProfile } = params
+    const shouldHandleVet = (profile?.role || fallbackRole) === 'veterinarian'
+
+    if (!shouldHandleVet) {
+      return profile
+    }
+
+    const payload = buildVetBackfillPayload({
+      profile,
+      fallbackName,
+      fallbackPhone,
+      fallbackVetProfile,
+    })
+
+    if (Object.keys(payload).length === 0) {
+      return profile
+    }
+
+    const { data: updatedProfile, error } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', userId)
+      .select('*')
+      .maybeSingle()
+
+    if (!error) {
+      return updatedProfile || { ...profile, ...payload }
+    }
+
+    if (isMissingColumnError(error) || isPermissionError(error)) {
+      return { ...profile, ...payload }
+    }
+
+    console.warn('Vet profile metadata backfill failed:', error)
+    return profile
+  }
+
   const createProfileRecord = async (
     seed: ProfileSeed,
     allowDeferredOnPermission: boolean
@@ -275,6 +388,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return profileState
   }
 
+  const logAdminLogin = async (authUserId: string) => {
+    const adminRowQuery = await supabase
+      .from('admins')
+      .select('id')
+      .eq('user_id', authUserId)
+      .maybeSingle()
+
+    if (adminRowQuery.error || !adminRowQuery.data?.id) {
+      if (adminRowQuery.error && !isMissingRelationError(adminRowQuery.error)) {
+        console.warn('Failed to resolve admin row for activity log:', adminRowQuery.error)
+      }
+      return
+    }
+
+    const { error: activityError } = await supabase
+      .from('admin_activity_logs')
+      .insert({
+        admin_id: adminRowQuery.data.id,
+        action: 'LOGIN',
+        description: 'Admin user logged in',
+        status: 'success',
+      })
+
+    if (activityError && !isMissingRelationError(activityError)) {
+      console.warn('Failed to insert admin activity log:', activityError)
+    }
+  }
+
   // Check if user is already logged in on mount
   useEffect(() => {
     const checkSession = async () => {
@@ -325,6 +466,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               profile = profileReload.data
             }
           }
+
+          profile = await backfillVetProfileFromMetadata({
+            userId: sessionUser.id,
+            profile,
+            fallbackName,
+            fallbackPhone: normalizePhone(metadata.phone),
+            fallbackRole,
+            fallbackVetProfile,
+          })
 
           setUser({
             id: sessionUser.id,
@@ -483,6 +633,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           profile = profileReload.data
         }
 
+        profile = await backfillVetProfileFromMetadata({
+          userId: data.user.id,
+          profile,
+          fallbackName,
+          fallbackPhone: normalizePhone(metadata.phone),
+          fallbackRole,
+          fallbackVetProfile,
+        })
+
         const resolvedRole = normalizeUserRole(profile?.role ?? fallbackRole)
         const resolvedName = normalizeDisplayName(
           profile?.name ?? fallbackName,
@@ -510,14 +669,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Log admin login if admin
         if ((profile as any)?.role === 'admin' || normalizedEmail === 'admin@innovet.com') {
-          await supabase
-            .from('admin_activity_logs')
-            .insert({
-              admin_id: data.user.id,
-              action: 'LOGIN',
-              description: 'Admin user logged in',
-              status: 'success',
-            })
+          await logAdminLogin(data.user.id)
         }
 
         return loggedInUser

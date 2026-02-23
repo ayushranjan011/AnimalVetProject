@@ -34,7 +34,7 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const loggedInUser = await login(email, password)
+      const loggedInUser = await login(email, password, selectedRole)
 
       if (loggedInUser.role !== selectedRole) {
         await logout()

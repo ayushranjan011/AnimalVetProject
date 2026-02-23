@@ -149,7 +149,7 @@ export default function RegisterPage() {
         vetImageUrl = await uploadVetImage(vetImageFile)
       }
 
-      await signup(normalizedEmail, password, normalizedName, selectedRole, {
+      const signupResult = await signup(normalizedEmail, password, normalizedName, selectedRole, {
         phone: normalizedPhone,
         vetProfile: selectedRole === 'veterinarian'
           ? {
@@ -167,7 +167,10 @@ export default function RegisterPage() {
       })
 
       await logout()
-      alert('Registered successfully. Please login to continue.')
+      const successMessage = signupResult.warning
+        ? `Registered successfully.\n\n${signupResult.warning}\n\nPlease login to continue.`
+        : 'Registered successfully. Please login to continue.'
+      alert(successMessage)
       router.push('/')
     } catch (error: any) {
       alert('Registration failed: ' + error.message)

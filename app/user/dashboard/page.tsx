@@ -218,6 +218,7 @@ export default function UserDashboard() {
   const [vets, setVets] = useState<VetDirectoryItem[]>([])
   const [vetsLoading, setVetsLoading] = useState(false)
   const [vetSearchTerm, setVetSearchTerm] = useState('')
+  const [vetSchemaWarning, setVetSchemaWarning] = useState('')
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [vetDietPlans, setVetDietPlans] = useState<any[]>([])
   const [dietPlansLoading, setDietPlansLoading] = useState(false)
@@ -399,6 +400,7 @@ export default function UserDashboard() {
   useEffect(() => {
     const fetchVets = async () => {
       setVetsLoading(true)
+      setVetSchemaWarning('')
       const primaryQuery = await supabase
         .from('profiles')
         .select(
@@ -411,6 +413,9 @@ export default function UserDashboard() {
       let error: any = primaryQuery.error
 
       if (error && isMissingColumnError(error)) {
+        setVetSchemaWarning(
+          'Vet profile schema is incomplete in database. Run vet_profile_migration.sql in Supabase SQL Editor to show specialty, city, clinic and about details.'
+        )
         const fallback = await supabase
           .from('profiles')
           .select('id, email, name, role')
@@ -1073,6 +1078,12 @@ phImage: "/images/img/smartchemist.webp"
                 placeholder="Search vets by name or specialty..."
               />
             </div>
+
+            {vetSchemaWarning && (
+              <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+                {vetSchemaWarning}
+              </div>
+            )}
 
             {vetsLoading ? (
               <div className="p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 text-slate-600">

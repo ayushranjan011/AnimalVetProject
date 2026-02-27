@@ -807,7 +807,7 @@ export default function NGODashboard() {
                 </div>
               </div>
               <div className="mb-4">
-                <p className="text-4xl font-bold text-slate-800">${totalFunds.toLocaleString()}</p>
+                <p className="text-4xl font-bold text-slate-800">₹{totalFunds.toLocaleString()}</p>
                 <div className="flex items-center gap-2 mt-2">
                   <Progress value={65} className="h-2 flex-1" />
                   <span className="text-sm text-slate-500">65% of goal</span>
@@ -836,7 +836,7 @@ export default function NGODashboard() {
                         <p className="text-xs text-slate-500">{donor.date}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-bold text-emerald-600">${donor.amount.toLocaleString()}</p>
+                        <p className="font-bold text-emerald-600">₹{donor.amount.toLocaleString()}</p>
                         <Badge variant="outline" className="text-xs">{donor.type}</Badge>
                       </div>
                     </div>

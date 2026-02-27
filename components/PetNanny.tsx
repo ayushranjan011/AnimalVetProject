@@ -230,7 +230,7 @@ export default function PetNanny() {
 
                 <div className="border-t border-gray-200 pt-3">
                   <p className="text-sm text-gray-600">
-                    <span className="font-semibold text-gray-900">${nanny.pricePerHour}</span>/hr or <span className="font-semibold text-gray-900">${nanny.pricePerDay}</span>/day
+                    <span className="font-semibold text-gray-900">₹{nanny.pricePerHour}</span>/hr or <span className="font-semibold text-gray-900">₹{nanny.pricePerDay}</span>/day
                   </p>
                 </div>
 

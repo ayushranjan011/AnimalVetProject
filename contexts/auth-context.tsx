@@ -3,10 +3,10 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 
-type UserRole = 'user' | 'veterinarian' | 'ngo'
+type UserRole = 'user' | 'veterinarian' | 'ngo' | 'pet_nanny'
 
-const mapToUsersRole = (role: UserRole): 'pet_owner' | 'veterinarian' | 'ngo' => {
-  if (role === 'veterinarian' || role === 'ngo') {
+const mapToUsersRole = (role: UserRole): 'pet_owner' | 'veterinarian' | 'ngo' | 'pet_nanny' => {
+  if (role === 'veterinarian' || role === 'ngo' || role === 'pet_nanny') {
     return role
   }
 
@@ -60,7 +60,7 @@ const isPermissionError = (error: any) => {
 }
 
 const normalizeUserRole = (role: unknown): UserRole => {
-  if (role === 'veterinarian' || role === 'ngo') {
+  if (role === 'veterinarian' || role === 'ngo' || role === 'pet_nanny') {
     return role
   }
 
@@ -112,6 +112,7 @@ interface SignupOptions {
 
 interface SignupResult {
   warning?: string
+  userId?: string
 }
 
 type ProfileSeed = {
@@ -561,7 +562,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.warn(warningMessage)
         }
 
-        return warningMessage ? { warning: warningMessage } : {}
+        return warningMessage
+          ? { warning: warningMessage, userId: authData.user.id }
+          : { userId: authData.user.id }
       }
 
       throw new Error('Signup failed: user was not returned by Supabase Auth.')
@@ -587,7 +590,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const hasValidMetadataRole =
           metadata.role === 'user' ||
           metadata.role === 'veterinarian' ||
-          metadata.role === 'ngo'
+          metadata.role === 'ngo' ||
+          metadata.role === 'pet_nanny'
         const fallbackRole = hasValidMetadataRole
           ? normalizeUserRole(metadata.role)
           : expectedRole || 'user'

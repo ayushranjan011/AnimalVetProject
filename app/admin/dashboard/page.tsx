@@ -93,7 +93,7 @@ export default function AdminPanel() {
     { label: 'Registered Pets', value: '28,942', change: '+23%', icon: PawPrint, color: 'from-teal-500 to-cyan-500' },
     { label: 'Active SOS Alerts', value: '24', change: '-5%', icon: AlertCircle, color: 'from-red-500 to-orange-500' },
     { label: 'Pending Verifications', value: '156', change: '+8%', icon: CheckCircle, color: 'from-emerald-500 to-teal-500' },
-    { label: 'Total Donations', value: '$542,890', change: '+34%', icon: DollarSign, color: 'from-green-500 to-emerald-500' },
+    { label: 'Total Donations', value: '₹542,890', change: '+34%', icon: DollarSign, color: 'from-green-500 to-emerald-500' },
     { label: 'Adoptions (Month)', value: '487', change: '+18%', icon: Heart, color: 'from-rose-500 to-pink-500' },
   ]
 
@@ -389,15 +389,15 @@ export default function AdminPanel() {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="p-6 rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200">
                 <p className="text-slate-600 text-sm mb-2">Total Donations (This Month)</p>
-                <p className="text-4xl font-bold text-emerald-600">$542,890</p>
+                <p className="text-4xl font-bold text-emerald-600">₹542,890</p>
                 <p className="text-sm text-emerald-600 mt-2">↑ 34% from last month</p>
               </div>
               <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
                 <p className="text-slate-600 text-sm mb-4">Top 5 Donors</p>
                 <div className="space-y-2 text-sm">
-                  <p className="flex justify-between"><span>John Smith</span><span className="font-semibold">$50,000</span></p>
-                  <p className="flex justify-between"><span>Mukesh Enterprises</span><span className="font-semibold">$35,000</span></p>
-                  <p className="flex justify-between"><span>Sarah Johnson</span><span className="font-semibold">$25,000</span></p>
+                  <p className="flex justify-between"><span>John Smith</span><span className="font-semibold">₹50,000</span></p>
+                  <p className="flex justify-between"><span>Mukesh Enterprises</span><span className="font-semibold">₹35,000</span></p>
+                  <p className="flex justify-between"><span>Sarah Johnson</span><span className="font-semibold">₹25,000</span></p>
                 </div>
               </div>
             </div>

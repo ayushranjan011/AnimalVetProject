@@ -154,8 +154,10 @@ type IncomingVideoCall = {
   roomID: string
 }
 
-const mapToUsersRole = (role: 'user' | 'veterinarian' | 'ngo' | undefined): 'pet_owner' | 'veterinarian' | 'ngo' => {
-  if (role === 'veterinarian' || role === 'ngo') {
+const mapToUsersRole = (
+  role: 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | undefined
+): 'pet_owner' | 'veterinarian' | 'ngo' | 'pet_nanny' => {
+  if (role === 'veterinarian' || role === 'ngo' || role === 'pet_nanny') {
     return role
   }
 
@@ -361,6 +363,31 @@ export default function UserDashboard() {
   })
 
   const selectedPet = myPets.find((pet) => pet.id === selectedPetId)
+  const selectedPetPassport = selectedPet || myPets[0] || null
+  const passportMedicalHistory = selectedPetPassport
+    ? [
+        selectedPetPassport.isNeutered ? 'Neutered' : 'Not neutered',
+        selectedPetPassport.isRescue ? 'Rescue pet' : 'Domestic pet',
+        selectedPetPassport.microchipId
+          ? `Microchip: ${selectedPetPassport.microchipId}`
+          : 'Microchip not available',
+      ]
+    : ['No pet selected']
+  const passportVaccinations = selectedPetPassport
+    ? [
+        { name: 'Rabies', date: 'Record not added' },
+        { name: 'DHPP / Core', date: 'Record not added' },
+      ]
+    : [{ name: 'No records', date: 'N/A' }]
+  const passportTreatments = selectedPetPassport
+    ? [
+        {
+          date: 'Latest note',
+          description:
+            selectedPetPassport.notes || 'No treatment note available for this pet.',
+        },
+      ]
+    : [{ date: 'N/A', description: 'Select a pet profile to view passport.' }]
   const selectedPetWeightKgRaw =
     selectedPet && selectedPet.weight !== 'Not specified'
       ? Number(selectedPet.weight)
@@ -1024,12 +1051,12 @@ phImage: "/images/img/smartchemist.webp"
   ];
 
   const pharmacyProducts = [
-    { name: 'Heartgard Plus', category: 'Medicine', price: '$45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
-    { name: 'Premium Dog Food', category: 'Food', price: '$59.99', image: '/images/product-food.jpg', description: 'High-protein adult formula' },
-    { name: 'Flea & Tick Shampoo', category: 'Grooming', price: '$18.99', image: '/images/product-food.jpg', description: 'Gentle cleansing formula' },
-    { name: 'Joint Support Chews', category: 'Supplements', price: '$34.99', image: '/images/product-food.jpg', description: 'Glucosamine & chondroitin' },
-    { name: 'Dental Treats', category: 'Food', price: '$24.99', image: '/images/product-food.jpg', description: 'Reduces plaque & tartar' },
-    { name: 'Vitamin Supplements', category: 'Supplements', price: '$29.99', image: '/images/product-food.jpg', description: 'Daily multivitamin' },
+    { name: 'Heartgard Plus', category: 'Medicine', price: '₹45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
+    { name: 'Premium Dog Food', category: 'Food', price: '₹59.99', image: '/images/product-food.jpg', description: 'High-protein adult formula' },
+    { name: 'Flea & Tick Shampoo', category: 'Grooming', price: '₹18.99', image: '/images/product-food.jpg', description: 'Gentle cleansing formula' },
+    { name: 'Joint Support Chews', category: 'Supplements', price: '₹34.99', image: '/images/product-food.jpg', description: 'Glucosamine & chondroitin' },
+    { name: 'Dental Treats', category: 'Food', price: '₹24.99', image: '/images/product-food.jpg', description: 'Reduces plaque & tartar' },
+    { name: 'Vitamin Supplements', category: 'Supplements', price: '₹29.99', image: '/images/product-food.jpg', description: 'Daily multivitamin' },
   ]
 
   const trainingVideos = [
@@ -1057,7 +1084,7 @@ phImage: "/images/img/smartchemist.webp"
     { 
       name: 'Pet Rescue Foundation', 
       type: 'Government', 
-      // donations: '$125,000',
+      // donations: '₹125,000',
       volunteers: 250,
       rescueVans: 8,
       adoptions: 320,
@@ -1069,7 +1096,7 @@ phImage: "/images/img/smartchemist.webp"
     { 
       name: 'Animal Welfare Society', 
       type: 'Private', 
-      // donations: '$89,000',
+      // donations: '₹89,000',
       volunteers: 180,
       rescueVans: 5,
       adoptions: 215,
@@ -2111,23 +2138,16 @@ case 'pharmacy':
       <PetPassport
         open={showPassport}
         onOpenChange={setShowPassport}
-        petId="PET-2024-12345"
-        petName="Max"
-        petType="Dog"
-        breed="Golden Retriever"
-        age="3 years"
+        petId={selectedPetPassport?.petId || 'N/A'}
+        petName={selectedPetPassport?.name || 'Select a pet'}
+        petType={selectedPetPassport?.type || 'N/A'}
+        breed={selectedPetPassport?.breed || 'N/A'}
+        age={selectedPetPassport?.age || 'N/A'}
         owner={user?.name || 'Unknown'}
-        petImage="/images/pet-dog-1.jpg"
-        medicalHistory={['Healthy', 'No allergies', 'Neutered']}
-        vaccinations={[
-          { name: 'Rabies', date: '2024-01-15' },
-          { name: 'Distemper', date: '2024-01-15' },
-          { name: 'Parvovirus', date: '2024-01-15' },
-        ]}
-        treatments={[
-          { date: '2024-01-20', description: 'Annual checkup - All clear' },
-          { date: '2023-12-10', description: 'Dental cleaning' },
-        ]}
+        petImage={selectedPetPassport?.image || '/images/pet-dog-1.jpg'}
+        medicalHistory={passportMedicalHistory}
+        vaccinations={passportVaccinations}
+        treatments={passportTreatments}
       />
 
       <BookAppointmentModal

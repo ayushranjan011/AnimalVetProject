@@ -9,9 +9,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/contexts/auth-context'
-import { User, Stethoscope, Heart, ArrowRight, CheckCircle2, Upload, X, Loader2 } from 'lucide-react'
+import { User, Stethoscope, Heart, ArrowRight, CheckCircle2, Upload, X, Loader2, PawPrint } from 'lucide-react'
 
-type UserRole = 'user' | 'veterinarian' | 'ngo' | null
+type UserRole = 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | null
 
 type VetRegistrationForm = {
   specialty: string
@@ -203,6 +203,14 @@ export default function RegisterPage() {
       icon: Heart,
       gradient: 'from-emerald-400 to-teal-500',
       benefits: ['Track rescues', 'Manage volunteers', 'Process adoptions'],
+    },
+    {
+      id: 'pet_nanny' as const,
+      title: 'Pet Nanny',
+      description: 'List pet care services, manage bookings, and support pet parents',
+      icon: PawPrint,
+      gradient: 'from-orange-400 to-amber-500',
+      benefits: ['Create service profile', 'Accept bookings', 'Manage availability'],
     },
   ]
 

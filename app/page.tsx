@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/contexts/auth-context'
-import { User, Stethoscope, Heart, ArrowRight, Shield, Clock, Globe } from 'lucide-react'
+import { User, Stethoscope, Heart, ArrowRight, Shield, Clock, Globe, PawPrint } from 'lucide-react'
 
-type UserRole = 'user' | 'veterinarian' | 'ngo' | null
+type UserRole = 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | null
 
 export default function LoginPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>(null)
@@ -48,6 +48,8 @@ export default function LoginPage() {
         router.push('/vet/dashboard')
       } else if (selectedRole === 'ngo') {
         router.push('/ngo/dashboard')
+      } else if (selectedRole === 'pet_nanny') {
+        router.push('/pet-nanny/dashboard')
       }
     } catch (err: any) {
       setError(err?.message || 'Invalid email or password')
@@ -80,6 +82,14 @@ export default function LoginPage() {
       icon: Heart,
       gradient: 'from-emerald-400 to-teal-500',
       stats: '200+ NGOs',
+    },
+    {
+      id: 'pet_nanny' as const,
+      title: 'Pet Nanny',
+      description: 'Offer pet sitting, daycare, and home-visit care services',
+      icon: PawPrint,
+      gradient: 'from-orange-400 to-amber-500',
+      stats: 'Pet Care',
     },
   ]
 

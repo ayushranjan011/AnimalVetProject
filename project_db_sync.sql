@@ -183,4 +183,102 @@ CREATE INDEX IF NOT EXISTS idx_medical_records_owner_id ON public.medical_record
 CREATE INDEX IF NOT EXISTS idx_medical_records_pet_id ON public.medical_records(pet_id);
 CREATE INDEX IF NOT EXISTS idx_medical_records_record_date ON public.medical_records(record_date);
 
+-- 7) volunteer applications table (used in pet owner NGO volunteer form)
+CREATE TABLE IF NOT EXISTS public.volunteer_applications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
+  ngo_id UUID,
+  ngo_name TEXT NOT NULL,
+  applicant_name TEXT NOT NULL,
+  applicant_email TEXT NOT NULL,
+  applicant_phone TEXT NOT NULL,
+  age INTEGER CHECK (age IS NULL OR age >= 18),
+  city TEXT,
+  availability TEXT,
+  skills TEXT,
+  experience TEXT,
+  id_proof_number TEXT NOT NULL,
+  id_proof_url TEXT NOT NULL,
+  message TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_volunteer_applications_ngo_id ON public.volunteer_applications(ngo_id);
+CREATE INDEX IF NOT EXISTS idx_volunteer_applications_user_id ON public.volunteer_applications(user_id);
+CREATE INDEX IF NOT EXISTS idx_volunteer_applications_status ON public.volunteer_applications(status);
+
+-- 8) pet handover requests table (used when pet owner wants to hand over pet to NGO)
+CREATE TABLE IF NOT EXISTS public.pet_handover_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
+  ngo_id UUID,
+  ngo_name TEXT NOT NULL,
+  owner_name TEXT NOT NULL,
+  owner_email TEXT NOT NULL,
+  owner_phone TEXT NOT NULL,
+  pet_name TEXT NOT NULL,
+  pet_type TEXT NOT NULL,
+  pet_breed TEXT,
+  pet_age TEXT,
+  reason TEXT NOT NULL,
+  health_notes TEXT,
+  verification_id_number TEXT NOT NULL,
+  verification_id_proof_url TEXT NOT NULL,
+  pet_passport_requested BOOLEAN NOT NULL DEFAULT false,
+  passport_pet_id UUID,
+  passport_snapshot JSONB,
+  verification_status TEXT NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending', 'verified', 'rejected')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.pet_handover_requests
+  ADD COLUMN IF NOT EXISTS verification_id_number TEXT,
+  ADD COLUMN IF NOT EXISTS verification_id_proof_url TEXT,
+  ADD COLUMN IF NOT EXISTS pet_passport_requested BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS passport_pet_id UUID,
+  ADD COLUMN IF NOT EXISTS passport_snapshot JSONB,
+  ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_pet_handover_requests_ngo_id ON public.pet_handover_requests(ngo_id);
+CREATE INDEX IF NOT EXISTS idx_pet_handover_requests_user_id ON public.pet_handover_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_pet_handover_requests_status ON public.pet_handover_requests(status);
+
+-- 9) pet adoption requests table (used when pet owner wants to adopt from NGO)
+CREATE TABLE IF NOT EXISTS public.pet_adoption_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
+  ngo_id UUID,
+  ngo_name TEXT NOT NULL,
+  ngo_pet_id TEXT,
+  ngo_pet_name TEXT,
+  applicant_name TEXT NOT NULL,
+  applicant_email TEXT NOT NULL,
+  applicant_phone TEXT NOT NULL,
+  city TEXT NOT NULL,
+  address TEXT NOT NULL,
+  preferred_pet_type TEXT NOT NULL,
+  experience TEXT,
+  reason TEXT NOT NULL,
+  verification_id_number TEXT NOT NULL,
+  verification_id_proof_url TEXT NOT NULL,
+  pet_passport_requested BOOLEAN NOT NULL DEFAULT true,
+  verification_status TEXT NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending', 'verified', 'rejected')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.pet_adoption_requests
+  ADD COLUMN IF NOT EXISTS ngo_pet_id TEXT,
+  ADD COLUMN IF NOT EXISTS ngo_pet_name TEXT,
+  ADD COLUMN IF NOT EXISTS verification_id_number TEXT,
+  ADD COLUMN IF NOT EXISTS verification_id_proof_url TEXT,
+  ADD COLUMN IF NOT EXISTS pet_passport_requested BOOLEAN DEFAULT true,
+  ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_pet_adoption_requests_ngo_id ON public.pet_adoption_requests(ngo_id);
+CREATE INDEX IF NOT EXISTS idx_pet_adoption_requests_user_id ON public.pet_adoption_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_pet_adoption_requests_status ON public.pet_adoption_requests(status);
+
 COMMIT;

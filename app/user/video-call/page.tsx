@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/auth-context'
 import VideoCall from '@/components/VideoCall'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 
-export default function VideoCallPage() {
+function VideoCallContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, isLoading } = useAuth()
@@ -62,5 +62,21 @@ export default function VideoCallPage() {
         onLeave={() => router.push('/user/dashboard')}
       />
     </div>
+  )
+}
+
+export default function VideoCallPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="w-full h-screen bg-black flex items-center justify-center">
+          <div className="text-white text-center">
+            <p className="mb-4">Preparing video call...</p>
+          </div>
+        </div>
+      }
+    >
+      <VideoCallContent />
+    </Suspense>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [password, setPassword] = useState('')
@@ -16,6 +16,7 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [checkingLink, setCheckingLink] = useState(true)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [validLink, setValidLink] = useState(false)
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export default function ResetPasswordPage() {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setSuccess('')
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters')
@@ -70,8 +72,10 @@ export default function ResetPasswordPage() {
       const { error: updateError } = await supabase.auth.updateUser({ password })
       if (updateError) throw updateError
 
-      alert('Password updated successfully. Please login.')
-      router.push('/')
+      setSuccess('Password updated successfully. Redirecting to login...')
+      setTimeout(() => {
+        router.push('/')
+      }, 1200)
     } catch (err: any) {
       setError(err?.message || 'Failed to update password')
     } finally {
@@ -125,13 +129,14 @@ export default function ResetPasswordPage() {
             </div>
 
             {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
+            {success && <p className="text-sm font-medium text-emerald-600">{success}</p>}
 
             <Button
               type="submit"
               disabled={loading}
               className="w-full h-11 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-semibold"
             >
-              {loading ? 'Updating...' : 'Update password'}
+              {loading ? 'Updating...' : success ? 'Updated' : 'Update password'}
             </Button>
           </form>
         )}
@@ -144,5 +149,19 @@ export default function ResetPasswordPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-cyan-50/50 flex items-center justify-center p-4">
+          <p className="text-sm text-slate-600">Loading reset form...</p>
+        </div>
+      }
+    >
+      <ResetPasswordContent />
+    </Suspense>
   )
 }

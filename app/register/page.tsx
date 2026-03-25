@@ -47,6 +47,7 @@ export default function RegisterPage() {
   const [country, setCountry] = useState('')
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formFeedback, setFormFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
   const [vetForm, setVetForm] = useState<VetRegistrationForm>(initialVetForm)
   const [vetImageFile, setVetImageFile] = useState<File | null>(null)
   const [vetImagePreview, setVetImagePreview] = useState('')
@@ -102,6 +103,7 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault()
+    setFormFeedback(null)
     const normalizedName = name.trim()
     const normalizedEmail = email.trim().toLowerCase()
     const normalizedPhone = phone.trim()
@@ -110,39 +112,39 @@ export default function RegisterPage() {
     const normalizedCountry = country.trim()
 
     if (!selectedRole || !normalizedEmail || !password || !normalizedName) {
-      alert('Please fill in all required fields')
+      setFormFeedback({ type: 'error', message: 'Please fill in all required fields.' })
       return
     }
 
     if (password !== confirmPassword) {
-      alert('Passwords do not match')
+      setFormFeedback({ type: 'error', message: 'Passwords do not match.' })
       return
     }
 
     if (password.length < 6) {
-      alert('Password must be at least 6 characters')
+      setFormFeedback({ type: 'error', message: 'Password must be at least 6 characters.' })
       return
     }
 
     if (normalizedPhone && normalizedPhone.length !== 10) {
-      alert('Phone number must be exactly 10 digits')
+      setFormFeedback({ type: 'error', message: 'Phone number must be exactly 10 digits.' })
       return
     }
 
     if (selectedRole === 'veterinarian' && !vetForm.specialty.trim()) {
-      alert('Please add veterinarian specialty')
+      setFormFeedback({ type: 'error', message: 'Please add veterinarian specialty.' })
       return
     }
 
     const parsedExperienceYears = vetForm.experienceYears.trim() ? Number(vetForm.experienceYears) : null
     if (parsedExperienceYears !== null && (!Number.isFinite(parsedExperienceYears) || parsedExperienceYears < 0)) {
-      alert('Experience years must be a valid positive number')
+      setFormFeedback({ type: 'error', message: 'Experience years must be a valid positive number.' })
       return
     }
 
     const parsedConsultationFee = vetForm.consultationFee.trim() ? Number(vetForm.consultationFee) : null
     if (parsedConsultationFee !== null && (!Number.isFinite(parsedConsultationFee) || parsedConsultationFee < 0)) {
-      alert('Consultation fee must be a valid positive number')
+      setFormFeedback({ type: 'error', message: 'Consultation fee must be a valid positive number.' })
       return
     }
 
@@ -179,10 +181,12 @@ export default function RegisterPage() {
       const successMessage = signupResult.warning
         ? `Registered successfully.\n\n${signupResult.warning}\n\nPlease login to continue.`
         : 'Registered successfully. Please login to continue.'
-      alert(successMessage)
-      router.push('/')
+      setFormFeedback({ type: 'success', message: successMessage.replace(/\n+/g, ' ') })
+      setTimeout(() => {
+        router.push('/')
+      }, 1200)
     } catch (error: any) {
-      alert('Registration failed: ' + error.message)
+      setFormFeedback({ type: 'error', message: `Registration failed: ${error?.message || 'Unknown error'}` })
     } finally {
       setIsSubmitting(false)
     }
@@ -379,6 +383,18 @@ export default function RegisterPage() {
                   </div>
 
                   <form onSubmit={handleRegister} className="space-y-5">
+                    {formFeedback && (
+                      <div
+                        className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+                          formFeedback.type === 'success'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-rose-200 bg-rose-50 text-rose-700'
+                        }`}
+                      >
+                        {formFeedback.message}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="name" className="text-sm font-medium text-slate-700">Full Name *</Label>

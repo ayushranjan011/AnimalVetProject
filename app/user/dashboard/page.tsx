@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { Suspense, useEffect, useState, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -335,7 +335,7 @@ const isVideoCallNotification = (row: any) => {
   )
 }
 
-export default function UserDashboard() {
+function UserDashboardContent() {
   const { user, logout } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -3890,6 +3890,20 @@ case 'pharmacy':
         </div>
       )}
     </div>
+  )
+}
+
+export default function UserDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-cyan-50/50 flex items-center justify-center p-4">
+          <p className="text-sm text-slate-600">Loading dashboard...</p>
+        </div>
+      }
+    >
+      <UserDashboardContent />
+    </Suspense>
   )
 }
 

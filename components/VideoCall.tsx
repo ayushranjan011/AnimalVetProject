@@ -229,11 +229,11 @@ export default function VideoCall({
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/70">
           <div className="bg-red-900/80 backdrop-blur-sm border border-red-600 rounded-lg p-6 max-w-md text-center">
             <p className="text-white font-semibold mb-4">Video Call Error</p>
-            <p className="text-red-100 text-sm mb-4">{error}</p>
+            <p className="text-red-100 text-sm mb-6">{error}</p>
             <div className="flex gap-3 justify-center">
               <button
                 onClick={handleRetry}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition"
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition"
               >
                 Retry
               </button>
@@ -255,29 +255,6 @@ export default function VideoCall({
             <div className="animate-spin rounded-full h-16 w-16 border-4 border-teal-500 border-t-transparent mx-auto mb-4"></div>
             <p className="text-white">Initializing video call...</p>
             {retryCount > 0 && <p className="text-yellow-400 text-sm mt-2">Attempt {retryCount + 1} of 3</p>}
-          </div>
-        </div>
-      )}
-
-      {/* Video Container */}
-      <div
-        ref={containerRef}
-        className="w-full h-full"
-      />
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition"
-            >
-              Refresh Page
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Loading State */}
-      {!isInitialized && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-50">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-16 w-16 border-4 border-teal-500 border-t-transparent mx-auto mb-4"></div>
-            <p className="text-white">Initializing video call...</p>
           </div>
         </div>
       )}

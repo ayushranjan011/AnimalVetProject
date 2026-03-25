@@ -85,8 +85,9 @@ export default function PetNanny() {
         return
       }
 
-      // Deduplicate by ID
-      const uniqueMap = new Map()
+      // Deduplicate by ID and name
+      const idSet = new Set()
+      const nameSet = new Set()
       const mapped = (data || [])
         .map((row: any): PetNannyProfile => ({
           id: String(row.id),
@@ -116,8 +117,11 @@ export default function PetNanny() {
           availableTimes: row.available_times || 'Not specified',
         }))
         .filter((nanny: PetNannyProfile) => {
-          if (uniqueMap.has(nanny.id)) return false
-          uniqueMap.set(nanny.id, true)
+          // Remove duplicates by ID or name
+          const lowerName = nanny.name.toLowerCase().trim()
+          if (idSet.has(nanny.id) || nameSet.has(lowerName)) return false
+          idSet.add(nanny.id)
+          nameSet.add(lowerName)
           return true
         })
 

@@ -173,9 +173,6 @@ export default function PetNanny() {
     notes: '',
   })
   const [bookingSubmitting, setBookingSubmitting] = useState(false)
-  const [serviceType, setServiceType] = useState('all')
-  const [petType, setPetType] = useState('all')
-  const [selectedNanny, setSelectedNanny] = useState<PetNanny | null>(null)
 
   const filteredNannies = mockNannies.filter(nanny => {
     const matchesSearch = nanny.name.toLowerCase().includes(searchTerm.toLowerCase())

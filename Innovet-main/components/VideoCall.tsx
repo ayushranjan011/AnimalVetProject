@@ -18,6 +18,8 @@ interface VideoCallProps {
   onLeave?: () => void
 }
 
+let sdkLoadTimeout: NodeJS.Timeout | null = null
+
 export default function VideoCall({ 
   roomID, 
   userID = `user_${Math.floor(Math.random() * 10000)}`,
@@ -30,46 +32,64 @@ export default function VideoCall({
   const [isCameraOn, setIsCameraOn] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [retryCount, setRetryCount] = useState(0)
   const zpRef = useRef<any>(null)
+  const initializeAttemptRef = useRef(0)
 
   useEffect(() => {
-    // Check for permissions first
-    const checkPermissions = async () => {
-      try {
-        const hasAudio = await navigator.permissions.query({ name: 'microphone' as PermissionName })
-        const hasVideo = await navigator.permissions.query({ name: 'camera' as PermissionName })
-        
-        if (hasAudio?.state === 'denied' || hasVideo?.state === 'denied') {
-          setError('Please grant camera and microphone permissions in your browser settings')
-          setIsLoading(false)
-          return
-        }
-      } catch (e) {
-        // Permissions API not available, continue anyway
-      }
-    }
+    initializeAttemptRef.current = 0
 
-    checkPermissions()
-
-    // Load Zegocloud SDK
-    if (!window.ZegoUIKitPrebuilt) {
-      const script = document.createElement('script')
-      script.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js'
-      script.onload = () => {
+    const loadSDK = () => {
+      // Load Zegocloud SDK if not already loaded
+      if (window.ZegoUIKitPrebuilt) {
         setIsLoading(false)
         initializeCall()
+        return
       }
+
+      // Create and load script
+      if (document.getElementById('zego-sdk-script')) {
+        return
+      }
+
+      const script = document.createElement('script')
+      script.id = 'zego-sdk-script'
+      script.src = 'https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js'
+      script.async = true
+      script.defer = true
+
+      script.onload = () => {
+        setTimeout(() => {
+          if (window.ZegoUIKitPrebuilt) {
+            setIsLoading(false)
+            initializeCall()
+          } else {
+            setError('SDK loaded but initialization failed. Please refresh.')
+            setIsLoading(false)
+          }
+        }, 500)
+      }
+
       script.onerror = () => {
-        setError('Failed to load video call SDK. Please refresh the page.')
+        setError('Failed to load video call SDK. Please check your connection.')
         setIsLoading(false)
       }
+
       document.body.appendChild(script)
-    } else {
-      setIsLoading(false)
-      initializeCall()
+
+      if (sdkLoadTimeout) clearTimeout(sdkLoadTimeout)
+      sdkLoadTimeout = setTimeout(() => {
+        if (!window.ZegoUIKitPrebuilt) {
+          setError('SDK load timeout. Please refresh the page.')
+          setIsLoading(false)
+        }
+      }, 15000)
     }
 
+    loadSDK()
+
     return () => {
+      if (sdkLoadTimeout) clearTimeout(sdkLoadTimeout)
       if (zpRef.current) {
         try {
           zpRef.current.destroy?.()
@@ -81,101 +101,125 @@ export default function VideoCall({
   }, [roomID, userID, userName])
 
   const initializeCall = async () => {
-    if (!containerRef.current || !window.ZegoUIKitPrebuilt) return
+    if (!containerRef.current || !window.ZegoUIKitPrebuilt) {
+      if (initializeAttemptRef.current < 3) {
+        initializeAttemptRef.current++
+        setTimeout(initializeCall, 500)
+      }
+      return
+    }
 
     try {
-      // Get credentials from environment variables
-      const appID = parseInt(process.env.NEXT_PUBLIC_ZEGO_APP_ID || '619251060')
-      const serverSecret = process.env.NEXT_PUBLIC_ZEGO_SERVER_SECRET || 'c6485f29754e29441f94a972cd7a2663'
+      const appID = 619251060
+      const serverSecret = 'c6485f29754e29441f94a972cd7a2663'
       
-      if (!appID || !serverSecret) {
-        setError('Video call configuration is missing. Please contact support.')
-        return
-      }
+      console.log('[VideoCall] Initializing with AppID:', appID)
+      console.log('[VideoCall] RoomID:', roomID)
+      console.log('[VideoCall] UserID:', userID)
 
-      // Validate room ID and user ID
       if (!roomID || !userID) {
-        setError('Invalid room or user information')
-        return
+        throw new Error('Invalid room or user information')
       }
 
-      // Generate token with error handling
+      if (!appID || !serverSecret) {
+        throw new Error('Video call configuration is missing')
+      }
+
+      console.log('[VideoCall] Generating token...')
       let kitToken
+      
       try {
         kitToken = window.ZegoUIKitPrebuilt.generateKitTokenForTest(
           appID,
           serverSecret,
-          roomID,
-          userID,
-          userName
+          String(roomID),
+          String(userID),
+          String(userName)
         )
       } catch (tokenError) {
-        console.error('Token generation error:', tokenError)
-        setError('Failed to generate video call token. Please try again.')
-        return
+        console.error('[VideoCall] Token generation error:', tokenError)
+        throw new Error('Failed to generate authentication token')
       }
 
       if (!kitToken) {
-        setError('Failed to generate authentication token')
-        return
+        throw new Error('Token generation returned empty result')
       }
 
-      // Create Zego instance with error handling
+      console.log('[VideoCall] Token generated successfully')
+
+      console.log('[VideoCall] Creating Zego instance...')
       let zp
+      
       try {
         zp = window.ZegoUIKitPrebuilt.create(kitToken)
       } catch (createError) {
-        console.error('Failed to create Zego instance:', createError)
-        setError('Failed to initialize video call. Please refresh and try again.')
-        return
+        console.error('[VideoCall] Create instance error:', createError)
+        throw new Error('Failed to create video call instance')
       }
 
+      console.log('[VideoCall] Zego instance created, joining room...')
       zpRef.current = zp
 
-      // Join room with comprehensive error handling
-      try {
-        zp.joinRoom({
-          container: containerRef.current,
-          sharedLinks: [
-            {
-              name: 'Share this link',
-              url:
-                `${window.location.protocol}//${window.location.host}/user/video-call?roomID=${roomID}`,
-            },
-          ],
-          scenario: {
-            mode: window.ZegoUIKitPrebuilt.VideoConference,
+      zp.joinRoom({
+        container: containerRef.current,
+        sharedLinks: [
+          {
+            name: 'Share this link',
+            url: `${window.location.protocol}//${window.location.host}/user/video-call?roomID=${roomID}`,
           },
-          turnOnMicrophoneWhenJoining: true,
-          turnOnCameraWhenJoining: true,
-          showMyCameraToggleButton: true,
-          showMyMicrophoneToggleButton: true,
-          showAudioVideoSettingsButton: true,
-          showScreenSharingButton: true,
-          showTextChat: true,
-          showUserList: true,
-          maxUsers: 2,
-          layout: 'Auto',
-          showLayoutButton: false,
-          onLeaveRoom: () => {
-            setError(null)
-            onLeave?.()
-          },
-          onError: (error: any) => {
-            console.error('Video call error:', error)
-            setError(`Video call error: ${error?.message || 'Unknown error'}`)
-          },
-        })
+        ],
+        scenario: {
+          mode: window.ZegoUIKitPrebuilt.VideoConference,
+        },
+        turnOnMicrophoneWhenJoining: false,
+        turnOnCameraWhenJoining: false,
+        showMyCameraToggleButton: true,
+        showMyMicrophoneToggleButton: true,
+        showAudioVideoSettingsButton: true,
+        showScreenSharingButton: true,
+        showTextChat: true,
+        showUserList: true,
+        maxUsers: 2,
+        layout: 'Auto',
+        showLayoutButton: false,
+        onJoinRoom: () => {
+          console.log('[VideoCall] Successfully joined room')
+          setError(null)
+          setIsCallActive(true)
+        },
+        onLeaveRoom: () => {
+          console.log('[VideoCall] Left room')
+          setError(null)
+          setIsCallActive(false)
+          onLeave?.()
+        },
+        onError: (error: any) => {
+          const errorMsg = error?.message || error?.toString?.() || 'Unknown error'
+          console.error('[VideoCall] Room error:', errorMsg, error)
+          setError(`Video call error: ${errorMsg}`)
+        },
+      })
 
-        setIsCallActive(true)
-      } catch (joinError) {
-        console.error('Failed to join room:', joinError)
-        setError('Failed to join video call. Please check your connection and try again.')
+      console.log('[VideoCall] Room join request sent')
+    } catch (error: any) {
+      const errorMsg = error?.message || String(error)
+      console.error('[VideoCall] Initialization error:', errorMsg, error)
+      
+      if (retryCount < 2) {
+        console.log(`[VideoCall] Retrying... (attempt ${retryCount + 1}/2)`)
+        setRetryCount(retryCount + 1)
+        setTimeout(() => initializeCall(), 2000)
+      } else {
+        setError(`Video call initialization failed: ${errorMsg}. Please refresh and try again.`)
       }
-    } catch (error) {
-      console.error('Failed to initialize video call:', error)
-      setError('An unexpected error occurred. Please refresh the page.')
     }
+  }
+
+  const handleRetry = () => {
+    setError(null)
+    setRetryCount(0)
+    initializeAttemptRef.current = 0
+    initializeCall()
   }
 
   const handleLeaveCall = () => {
@@ -193,13 +237,21 @@ export default function VideoCall({
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/70">
           <div className="bg-red-900/80 backdrop-blur-sm border border-red-600 rounded-lg p-6 max-w-md text-center">
             <p className="text-white font-semibold mb-4">Video Call Error</p>
-            <p className="text-red-100 text-sm mb-4">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition"
-            >
-              Refresh Page
-            </button>
+            <p className="text-red-100 text-sm mb-6">{error}</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={handleRetry}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition"
+              >
+                Retry
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
       )}

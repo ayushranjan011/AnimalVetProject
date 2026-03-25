@@ -1,10 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Search, MapPin, Star, Filter, X } from 'lucide-react'
+import { Search, MapPin, Star, Filter, X, Calendar, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/auth-context'
 import { supabase } from '@/lib/supabase'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 
 interface PetNannyProfile {
   id: string
@@ -24,18 +28,49 @@ interface PetNannyProfile {
   availableTimes: string
 }
 
+interface BookingForm {
+  petId: string
+  startDate: string
+  endDate: string
+  serviceType: string
+  notes: string
+}
+
 export default function PetNanny() {
   const { user } = useAuth()
   const [nannies, setNannies] = useState<PetNannyProfile[]>([])
+  const [pets, setPets] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [distance, setDistance] = useState('10')
   const [serviceType, setServiceType] = useState('all')
   const [petType, setPetType] = useState('all')
   const [selectedNanny, setSelectedNanny] = useState<PetNannyProfile | null>(null)
+  const [showBookingModal, setShowBookingModal] = useState(false)
+  const [bookingNanny, setBookingNanny] = useState<PetNannyProfile | null>(null)
+  const [bookingForm, setBookingForm] = useState<BookingForm>({
+    petId: '',
+    startDate: '',
+    endDate: '',
+    serviceType: '',
+    notes: '',
+  })
+  const [bookingSubmitting, setBookingSubmitting] = useState(false)
 
   useEffect(() => {
-    const fetchNannies = async () => {
+    const fetchData = async () => {
+      // Fetch pets
+      if (user?.id) {
+        const { data: petsData } = await supabase
+          .from('pets')
+          .select('id, name, type')
+          .eq('owner_id', user.id)
+        if (petsData) {
+          setPets(petsData)
+        }
+      }
+
+      // Fetch nannies with deduplication
       setLoading(true)
       const { data, error } = await supabase
         .from('pet_nannies')
@@ -50,38 +85,46 @@ export default function PetNanny() {
         return
       }
 
-      const mapped = (data || []).map((row: any): PetNannyProfile => ({
-        id: String(row.id),
-        name: row.name || 'Pet Nanny',
-        image: row.image || 'Nanny',
-        distance: Number(row.distance_km ?? row.distance ?? 0),
-        rating: Number(row.rating ?? 0),
-        reviews: Number(row.reviews_count ?? row.reviews ?? 0),
-        description: row.description || 'No description provided.',
-        services: Array.isArray(row.services)
-          ? row.services
-          : String(row.services || '')
-              .split(',')
-              .map((x) => x.trim())
-              .filter(Boolean),
-        pricePerHour: Number(row.price_per_hour ?? 0),
-        pricePerDay: Number(row.price_per_day ?? 0),
-        availability: row.availability === 'busy' ? 'busy' : 'available',
-        petTypes: Array.isArray(row.pet_types)
-          ? row.pet_types
-          : String(row.pet_types || '')
-              .split(',')
-              .map((x) => x.trim())
-              .filter(Boolean),
-        experience: row.experience || 'Experience details not provided.',
-        reviews_list: Array.isArray(row.reviews_list) ? row.reviews_list : [],
-        availableTimes: row.available_times || 'Not specified',
-      }))
+      // Deduplicate by ID
+      const uniqueMap = new Map()
+      const mapped = (data || [])
+        .map((row: any): PetNannyProfile => ({
+          id: String(row.id),
+          name: row.full_name || row.name || 'Pet Nanny',
+          image: row.image || '👤',
+          distance: Number(row.distance_km ?? row.distance ?? 0),
+          rating: Number(row.rating ?? 0),
+          reviews: Number(row.reviews_count ?? row.total_reviews ?? 0),
+          description: row.description || row.bio || 'No description provided.',
+          services: Array.isArray(row.services)
+            ? row.services
+            : String(row.services || '')
+                .split(',')
+                .map((x: string) => x.trim())
+                .filter(Boolean),
+          pricePerHour: Number(row.price_per_hour ?? 0),
+          pricePerDay: Number(row.price_per_day ?? 0),
+          availability: row.availability === 'busy' ? 'busy' : 'available',
+          petTypes: Array.isArray(row.pet_types)
+            ? row.pet_types
+            : String(row.pet_types || '')
+                .split(',')
+                .map((x: string) => x.trim())
+                .filter(Boolean),
+          experience: row.experience || 'Experience details not provided.',
+          reviews_list: Array.isArray(row.reviews_list) ? row.reviews_list : [],
+          availableTimes: row.available_times || 'Not specified',
+        }))
+        .filter((nanny: PetNannyProfile) => {
+          if (uniqueMap.has(nanny.id)) return false
+          uniqueMap.set(nanny.id, true)
+          return true
+        })
 
       setNannies(mapped)
     }
 
-    fetchNannies()
+    fetchData()
   }, [user?.id])
 
   const filteredNannies = nannies.filter((nanny) => {
@@ -97,6 +140,57 @@ export default function PetNanny() {
     setDistance('10')
     setServiceType('all')
     setPetType('all')
+  }
+
+  const handleRequestCare = (nanny: PetNannyProfile) => {
+    setBookingNanny(nanny)
+    setShowBookingModal(true)
+    setBookingForm({
+      petId: pets.length > 0 ? pets[0].id : '',
+      startDate: '',
+      endDate: '',
+      serviceType: nanny.services.length > 0 ? nanny.services[0] : '',
+      notes: '',
+    })
+  }
+
+  const handleSubmitBooking = async () => {
+    if (!bookingNanny || !user?.id || !bookingForm.petId || !bookingForm.startDate || !bookingForm.endDate) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    setBookingSubmitting(true)
+    try {
+      const { error } = await supabase
+        .from('pet_nanny_bookings')
+        .insert({
+          nanny_id: bookingNanny.id,
+          owner_id: user.id,
+          pet_id: bookingForm.petId,
+          start_time: new Date(bookingForm.startDate).toISOString(),
+          end_time: new Date(bookingForm.endDate).toISOString(),
+          notes: bookingForm.notes,
+          status: 'pending',
+        })
+
+      if (error) throw error
+
+      alert('Care request sent successfully!')
+      setShowBookingModal(false)
+      setBookingForm({
+        petId: '',
+        startDate: '',
+        endDate: '',
+        serviceType: '',
+        notes: '',
+      })
+    } catch (error) {
+      console.error('Booking error:', error)
+      alert('Failed to send booking request')
+    } finally {
+      setBookingSubmitting(false)
+    }
   }
 
   return (
@@ -238,7 +332,7 @@ export default function PetNanny() {
                   <Button onClick={() => setSelectedNanny(nanny)} variant="outline" className="bg-white border-teal-300 text-teal-600 hover:bg-teal-50 font-medium">
                     View Profile
                   </Button>
-                  <Button className="bg-teal-500 hover:bg-teal-600 text-white font-medium">Request Care</Button>
+                  <Button onClick={() => handleRequestCare(nanny)} className="bg-teal-500 hover:bg-teal-600 text-white font-medium">Request Care</Button>
                 </div>
               </div>
             </div>
@@ -275,6 +369,134 @@ export default function PetNanny() {
           </div>
         </div>
       )}
+
+      {/* Booking Modal */}
+      <Dialog open={showBookingModal} onOpenChange={setShowBookingModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Request Pet Care from {bookingNanny?.name}</DialogTitle>
+            <DialogDescription>
+              Fill in the details to request pet care services
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Pet Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="pet">Select Pet *</Label>
+              <select
+                id="pet"
+                value={bookingForm.petId}
+                onChange={(e) => setBookingForm({ ...bookingForm, petId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+              >
+                <option value="">Choose a pet</option>
+                {pets.map((pet) => (
+                  <option key={pet.id} value={pet.id}>
+                    {pet.name} ({pet.type})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Service Type */}
+            <div className="space-y-2">
+              <Label htmlFor="service">Service Type *</Label>
+              <select
+                id="service"
+                value={bookingForm.serviceType}
+                onChange={(e) => setBookingForm({ ...bookingForm, serviceType: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+              >
+                <option value="">Select a service</option>
+                {bookingNanny?.services.map((service) => (
+                  <option key={service} value={service}>
+                    {service}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Date Range */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date *</Label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <Input
+                    id="startDate"
+                    type="datetime-local"
+                    value={bookingForm.startDate}
+                    onChange={(e) => setBookingForm({ ...bookingForm, startDate: e.target.value })}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date *</Label>
+                <div className="relative">
+                  <Clock className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <Input
+                    id="endDate"
+                    type="datetime-local"
+                    value={bookingForm.endDate}
+                    onChange={(e) => setBookingForm({ ...bookingForm, endDate: e.target.value })}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label htmlFor="notes">Additional Notes</Label>
+              <Textarea
+                id="notes"
+                placeholder="e.g., pet allergies, feeding instructions, special care requirements..."
+                value={bookingForm.notes}
+                onChange={(e) => setBookingForm({ ...bookingForm, notes: e.target.value })}
+                className="min-h-24"
+              />
+            </div>
+
+            {/* Pricing Summary */}
+            {bookingForm.startDate && bookingForm.endDate && (
+              <div className="bg-teal-50 p-4 rounded-lg space-y-2">
+                <p className="font-semibold text-gray-900">Estimated Cost</p>
+                <p className="text-sm text-gray-600">
+                  Start: {new Date(bookingForm.startDate).toLocaleDateString()} {new Date(bookingForm.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                <p className="text-sm text-gray-600">
+                  End: {new Date(bookingForm.endDate).toLocaleDateString()} {new Date(bookingForm.endDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                {bookingNanny && (
+                  <p className="text-lg font-semibold text-teal-600">
+                    ₹{bookingNanny.pricePerHour}/hr or ₹{bookingNanny.pricePerDay}/day
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowBookingModal(false)}
+              disabled={bookingSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitBooking}
+              disabled={bookingSubmitting}
+              className="bg-teal-500 hover:bg-teal-600"
+            >
+              {bookingSubmitting ? 'Sending Request...' : 'Send Request'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

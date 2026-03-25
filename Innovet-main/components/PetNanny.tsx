@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { Search, MapPin, Star, Filter, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Search, MapPin, Star, Filter, X, Calendar, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 
 interface PetNanny {
   id: string
@@ -20,6 +24,14 @@ interface PetNanny {
   experience: string
   reviews_list: Array<{ reviewer: string; rating: number; text: string }>
   availableTimes: string
+}
+
+interface BookingForm {
+  petId: string
+  startDate: string
+  endDate: string
+  serviceType: string
+  notes: string
 }
 
 const mockNannies: PetNanny[] = [
@@ -151,6 +163,19 @@ export default function PetNanny() {
   const [serviceType, setServiceType] = useState('all')
   const [petType, setPetType] = useState('all')
   const [selectedNanny, setSelectedNanny] = useState<PetNanny | null>(null)
+  const [showBookingModal, setShowBookingModal] = useState(false)
+  const [bookingNanny, setBookingNanny] = useState<PetNanny | null>(null)
+  const [bookingForm, setBookingForm] = useState<BookingForm>({
+    petId: '',
+    startDate: '',
+    endDate: '',
+    serviceType: '',
+    notes: '',
+  })
+  const [bookingSubmitting, setBookingSubmitting] = useState(false)
+  const [serviceType, setServiceType] = useState('all')
+  const [petType, setPetType] = useState('all')
+  const [selectedNanny, setSelectedNanny] = useState<PetNanny | null>(null)
 
   const filteredNannies = mockNannies.filter(nanny => {
     const matchesSearch = nanny.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -165,6 +190,44 @@ export default function PetNanny() {
     setDistance('10')
     setServiceType('all')
     setPetType('all')
+  }
+
+  const handleRequestCare = (nanny: PetNanny) => {
+    setBookingNanny(nanny)
+    setShowBookingModal(true)
+    setBookingForm({
+      petId: '',
+      startDate: '',
+      endDate: '',
+      serviceType: nanny.services.length > 0 ? nanny.services[0] : '',
+      notes: '',
+    })
+  }
+
+  const handleSubmitBooking = async () => {
+    if (!bookingForm.petId || !bookingForm.startDate || !bookingForm.endDate) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    setBookingSubmitting(true)
+    try {
+      // Simulate saving booking
+      alert('Care request sent successfully!')
+      setShowBookingModal(false)
+      setBookingForm({
+        petId: '',
+        startDate: '',
+        endDate: '',
+        serviceType: '',
+        notes: '',
+      })
+    } catch (error) {
+      console.error('Booking error:', error)
+      alert('Failed to send booking request')
+    } finally {
+      setBookingSubmitting(false)
+    }
   }
 
   return (
@@ -348,7 +411,7 @@ export default function PetNanny() {
                   >
                     View Profile
                   </Button>
-                  <Button className="bg-teal-500 hover:bg-teal-600 text-white font-medium">
+                  <Button onClick={() => handleRequestCare(nanny)} className="bg-teal-500 hover:bg-teal-600 text-white font-medium">
                     Request Care
                   </Button>
                 </div>
@@ -521,13 +584,126 @@ export default function PetNanny() {
               >
                 Close
               </Button>
-              <Button className="bg-teal-500 hover:bg-teal-600 text-white font-medium">
+              <Button onClick={() => {
+                setSelectedNanny(null)
+                if (selectedNanny) handleRequestCare(selectedNanny)
+              }} className="bg-teal-500 hover:bg-teal-600 text-white font-medium">
                 Request Care
               </Button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Booking Modal */}
+      <Dialog open={showBookingModal} onOpenChange={setShowBookingModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Request Pet Care from {bookingNanny?.name}</DialogTitle>
+            <DialogDescription>
+              Fill in the details to request pet care services
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Service Type */}
+            <div className="space-y-2">
+              <Label htmlFor="service">Service Type *</Label>
+              <select
+                id="service"
+                value={bookingForm.serviceType}
+                onChange={(e) => setBookingForm({ ...bookingForm, serviceType: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+              >
+                <option value="">Select a service</option>
+                {bookingNanny?.services.map((service) => (
+                  <option key={service} value={service}>
+                    {service}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Date Range */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date *</Label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <Input
+                    id="startDate"
+                    type="datetime-local"
+                    value={bookingForm.startDate}
+                    onChange={(e) => setBookingForm({ ...bookingForm, startDate: e.target.value })}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date *</Label>
+                <div className="relative">
+                  <Clock className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <Input
+                    id="endDate"
+                    type="datetime-local"
+                    value={bookingForm.endDate}
+                    onChange={(e) => setBookingForm({ ...bookingForm, endDate: e.target.value })}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label htmlFor="notes">Additional Notes</Label>
+              <Textarea
+                id="notes"
+                placeholder="e.g., pet allergies, feeding instructions, special care requirements..."
+                value={bookingForm.notes}
+                onChange={(e) => setBookingForm({ ...bookingForm, notes: e.target.value })}
+                className="min-h-24"
+              />
+            </div>
+
+            {/* Pricing Summary */}
+            {bookingForm.startDate && bookingForm.endDate && (
+              <div className="bg-teal-50 p-4 rounded-lg space-y-2">
+                <p className="font-semibold text-gray-900">Estimated Cost</p>
+                <p className="text-sm text-gray-600">
+                  Start: {new Date(bookingForm.startDate).toLocaleDateString()} {new Date(bookingForm.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                <p className="text-sm text-gray-600">
+                  End: {new Date(bookingForm.endDate).toLocaleDateString()} {new Date(bookingForm.endDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                {bookingNanny && (
+                  <p className="text-lg font-semibold text-teal-600">
+                    ${bookingNanny.pricePerHour}/hr or ${bookingNanny.pricePerDay}/day
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowBookingModal(false)}
+              disabled={bookingSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitBooking}
+              disabled={bookingSubmitting}
+              className="bg-teal-500 hover:bg-teal-600"
+            >
+              {bookingSubmitting ? 'Sending Request...' : 'Send Request'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

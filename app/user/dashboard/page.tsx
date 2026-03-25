@@ -201,7 +201,6 @@ type PetAdoptionForm = {
   address: string
   preferredPetType: string
   experience: string
-  reason: string
   verificationIdNumber: string
   requestPetPassport: boolean
 }
@@ -211,6 +210,22 @@ type IncomingVideoCall = {
   title: string
   description: string
   roomID: string
+}
+
+type UserProfileForm = {
+  name: string
+  email: string
+  phone: string
+  city: string
+  state: string
+  country: string
+}
+
+type RecentActivityItem = {
+  title: string
+  time: string
+  type: 'reminder' | 'message' | 'content'
+  timestamp: number
 }
 
 const mapToUsersRole = (
@@ -255,6 +270,34 @@ const isSetupPendingError = (error: any) => {
 }
 
 const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+
+const formatRelativeTime = (value?: string | null) => {
+  if (!value) return 'Just now'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Just now'
+
+  const diffMs = Date.now() - date.getTime()
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+
+  if (diffMs < minute) return 'Just now'
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)} min ago`
+  if (diffMs < day) return `${Math.floor(diffMs / hour)} hr ago`
+  return `${Math.floor(diffMs / day)} day ago`
+}
+
+const mapNotificationActivityType = (type: unknown): 'reminder' | 'message' | 'content' => {
+  const normalizedType = normalizeText(type).toLowerCase()
+  if (normalizedType === 'appointment' || normalizedType === 'vaccination' || normalizedType === 'sos') {
+    return 'reminder'
+  }
+  if (normalizedType === 'medical' || normalizedType === 'prescription') {
+    return 'message'
+  }
+  return 'content'
+}
 
 const getEmailPrefix = (value: unknown) => {
   const email = normalizeText(value)
@@ -361,7 +404,6 @@ export default function UserDashboard() {
     address: '',
     preferredPetType: 'Dog',
     experience: '',
-    reason: '',
     verificationIdNumber: '',
     requestPetPassport: true,
   })
@@ -372,6 +414,17 @@ export default function UserDashboard() {
   const [vetDietPlans, setVetDietPlans] = useState<any[]>([])
   const [dietPlansLoading, setDietPlansLoading] = useState(false)
   const [dietPlansError, setDietPlansError] = useState('')
+  const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([])
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileForm, setProfileForm] = useState<UserProfileForm>({
+    name: '',
+    email: '',
+    phone: '',
+    city: '',
+    state: '',
+    country: '',
+  })
   const [newPetForm, setNewPetForm] = useState({
     name: '',
     species: 'Dog',
@@ -391,6 +444,100 @@ export default function UserDashboard() {
   const handleLogout = () => {
     logout()
     router.push('/')
+  }
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!user?.id) {
+        setProfileForm({
+          name: '',
+          email: '',
+          phone: '',
+          city: '',
+          state: '',
+          country: '',
+        })
+        return
+      }
+
+      setProfileLoading(true)
+      let query = await supabase
+        .from('profiles')
+        .select('name, email, phone, city, state, country')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (query.error && isMissingColumnError(query.error)) {
+        query = await supabase
+          .from('profiles')
+          .select('name, email, phone')
+          .eq('id', user.id)
+          .maybeSingle()
+      }
+
+      setProfileLoading(false)
+
+      if (query.error) {
+        setProfileForm({
+          name: user.name || '',
+          email: user.email || '',
+          phone: '',
+          city: '',
+          state: '',
+          country: '',
+        })
+        return
+      }
+
+      const row = query.data || {}
+      setProfileForm({
+        name: normalizeText((row as any)?.name) || user.name || '',
+        email: normalizeText((row as any)?.email) || user.email || '',
+        phone: normalizeText((row as any)?.phone),
+        city: normalizeText((row as any)?.city),
+        state: normalizeText((row as any)?.state),
+        country: normalizeText((row as any)?.country),
+      })
+    }
+
+    void fetchUserProfile()
+  }, [user?.id, user?.email, user?.name])
+
+  const handleProfileSave = async () => {
+    if (!user?.id) return
+
+    setProfileSaving(true)
+    const fullPayload = {
+      name: profileForm.name.trim() || user.name,
+      phone: profileForm.phone.trim() || null,
+      city: profileForm.city.trim() || null,
+      state: profileForm.state.trim() || null,
+      country: profileForm.country.trim() || null,
+    }
+
+    let query = await supabase
+      .from('profiles')
+      .update(fullPayload)
+      .eq('id', user.id)
+
+    if (query.error && isMissingColumnError(query.error)) {
+      query = await supabase
+        .from('profiles')
+        .update({
+          name: profileForm.name.trim() || user.name,
+          phone: profileForm.phone.trim() || null,
+        })
+        .eq('id', user.id)
+    }
+
+    setProfileSaving(false)
+
+    if (query.error) {
+      alert(`Could not update profile: ${query.error.message}`)
+      return
+    }
+
+    alert('Profile updated successfully.')
   }
 
   const openIncomingVideoCallPopup = (row: any) => {
@@ -927,6 +1074,86 @@ export default function UserDashboard() {
   }
 
   useEffect(() => {
+    const fetchRecentActivities = async () => {
+      if (!user?.id) {
+        setRecentActivities([])
+        return
+      }
+
+      const activities: RecentActivityItem[] = []
+
+      const notificationsQuery = await supabase
+        .from('notifications')
+        .select('id, title, description, type, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      if (!notificationsQuery.error) {
+        for (const row of notificationsQuery.data || []) {
+          const timestampString =
+            normalizeText((row as any)?.created_at) || new Date().toISOString()
+
+          activities.push({
+            title:
+              normalizeText((row as any)?.title) ||
+              normalizeText((row as any)?.description) ||
+              'New notification',
+            time: formatRelativeTime(timestampString),
+            type: mapNotificationActivityType((row as any)?.type),
+            timestamp: new Date(timestampString).getTime(),
+          })
+        }
+      }
+
+      let appointmentsQuery = await supabase
+        .from('appointments')
+        .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date')
+        .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      if (appointmentsQuery.error && isMissingColumnError(appointmentsQuery.error, 'created_at')) {
+        appointmentsQuery = await supabase
+          .from('appointments')
+          .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date')
+          .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
+          .order('date', { ascending: false })
+          .limit(5)
+      }
+
+      if (!appointmentsQuery.error) {
+        for (const row of appointmentsQuery.data || []) {
+          const petName = normalizeText((row as any)?.pet_name) || 'your pet'
+          const status = normalizeText((row as any)?.status) || 'updated'
+          const timestampString =
+            normalizeText((row as any)?.created_at) ||
+            normalizeText((row as any)?.date) ||
+            normalizeText((row as any)?.appointment_date) ||
+            normalizeText((row as any)?.scheduled_date) ||
+            new Date().toISOString()
+
+          activities.push({
+            title: `Appointment ${status.toLowerCase()} for ${petName}`,
+            time: formatRelativeTime(timestampString),
+            type: 'reminder',
+            timestamp: new Date(timestampString).getTime(),
+          })
+        }
+      }
+
+      const sorted = activities
+        .filter((item) => Number.isFinite(item.timestamp))
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 4)
+
+      setRecentActivities(sorted)
+    }
+
+    void fetchRecentActivities()
+  }, [user?.id, unreadNotificationCount, incomingVideoCall?.notificationId])
+
+  useEffect(() => {
     const fetchDietPlans = async () => {
       if (!petOwnerId) {
         setVetDietPlans([])
@@ -1366,7 +1593,6 @@ export default function UserDashboard() {
       address: '',
       preferredPetType: 'Dog',
       experience: '',
-      reason: '',
       verificationIdNumber: '',
       requestPetPassport: true,
     })
@@ -1396,7 +1622,6 @@ export default function UserDashboard() {
       address: '',
       preferredPetType: ngoPet.type,
       experience: '',
-      reason: '',
       verificationIdNumber: '',
       requestPetPassport: true,
     })
@@ -1428,7 +1653,6 @@ export default function UserDashboard() {
       !adoptionForm.applicantPhone.trim() ||
       !adoptionForm.city.trim() ||
       !adoptionForm.address.trim() ||
-      !adoptionForm.reason.trim() ||
       !adoptionForm.verificationIdNumber.trim()
     ) {
       alert('Please fill all required fields including verification details.')
@@ -1463,7 +1687,7 @@ export default function UserDashboard() {
         address: adoptionForm.address.trim(),
         preferred_pet_type: selectedAdoptionPet.type,
         experience: adoptionForm.experience.trim() || null,
-        reason: adoptionForm.reason.trim(),
+        reason: 'Not provided by applicant',
         verification_id_number: adoptionForm.verificationIdNumber.trim(),
         verification_id_proof_url: idProofPath,
         pet_passport_requested: adoptionForm.requestPetPassport,
@@ -1639,6 +1863,60 @@ phImage: "/images/img/smartchemist.webp"
       rating: 4.2
     }
   ];
+
+  const distanceToKm = (distance: string) => {
+    const numericValue = Number.parseFloat(distance.replace(/[^\d.]/g, ''))
+    if (!Number.isFinite(numericValue)) return Number.POSITIVE_INFINITY
+    return distance.toLowerCase().includes('m') && !distance.toLowerCase().includes('km')
+      ? numericValue / 1000
+      : numericValue
+  }
+
+  const normalizedCity = normalizeText(profileForm.city).toLowerCase()
+  const normalizedState = normalizeText(profileForm.state).toLowerCase()
+  const normalizedCountry = normalizeText(profileForm.country).toLowerCase()
+  const userLocationParts = [profileForm.city, profileForm.state, profileForm.country]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+  const userLocationQuery = userLocationParts.join(', ')
+
+  const locationScoreForPharmacy = (address: string) => {
+    if (!normalizedCity && !normalizedState && !normalizedCountry) return 0
+    const normalizedAddress = address.toLowerCase()
+    let score = 0
+    if (normalizedCity && normalizedAddress.includes(normalizedCity)) score += 3
+    if (normalizedState && normalizedAddress.includes(normalizedState)) score += 2
+    if (normalizedCountry && normalizedAddress.includes(normalizedCountry)) score += 1
+    return score
+  }
+
+  const pharmaciesSorted = [...pharmacies].sort((first, second) => {
+    const scoreDiff =
+      locationScoreForPharmacy(second.address) - locationScoreForPharmacy(first.address)
+    if (scoreDiff !== 0) return scoreDiff
+    return distanceToKm(first.distance) - distanceToKm(second.distance)
+  })
+
+  const nearestPharmacy = pharmaciesSorted[0] || null
+
+  const buildMapsSearchUrl = (query: string) =>
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+
+  const openNearbyPharmacySearch = () => {
+    const query = userLocationQuery
+      ? `pet pharmacy near ${userLocationQuery}`
+      : 'pet pharmacy near me'
+    window.open(buildMapsSearchUrl(query), '_blank', 'noopener,noreferrer')
+  }
+
+  const openPharmacyDirections = (shop: (typeof pharmacies)[number]) => {
+    const destination = `${shop.name}, ${shop.address}`
+    const url = userLocationQuery
+      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(userLocationQuery)}&destination=${encodeURIComponent(destination)}`
+      : buildMapsSearchUrl(destination)
+
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   const pharmacyProducts = [
     { name: 'Heartgard Plus', category: 'Medicine', price: '₹45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
@@ -1963,22 +2241,37 @@ case 'pharmacy':
 
             <Tabs defaultValue="all" className="w-full">
               <main className="max-w-7xl mx-auto px-4 py-12">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
-          <button className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50">
+        <div className="flex justify-between items-center mb-8 gap-3">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
+            <p className="text-sm text-slate-500">
+              {userLocationQuery
+                ? `Linked with your profile location: ${userLocationQuery}`
+                : 'Add city/state/country in My Profile for better nearest results.'}
+            </p>
+          </div>
+          <button
+            onClick={openNearbyPharmacySearch}
+            className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50"
+          >
             Use My Location
           </button>
         </div>
 
         {/* Div Blocks Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {pharmacies.map((shop) => (
+          {pharmaciesSorted.map((shop) => (
             <div key={shop.id} className="group bg-white rounded-3xl p-2 shadow-sm border border-slate-200 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <div className="bg-slate-100 rounded-2xl h-40 mb-4 overflow-hidden relative">
                 {/* Image Placeholder */}
                 <div className="absolute inset-0 flex items-center justify-center text-slate-300 italic">
                   <Image src={shop.phImage || "/placeholder.svg"} alt={shop.name} fill className="object-cover" />
                 </div>
+                {nearestPharmacy && nearestPharmacy.id === shop.id && (
+                  <div className="absolute top-3 left-3 bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                    Nearest Match
+                  </div>
+                )}
                 <div className="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-sm font-bold text-blue-600">
                   {shop.distance}
                 </div>
@@ -2013,12 +2306,19 @@ case 'pharmacy':
                 </div>
 
                 <div className="flex gap-2">
-                  <button className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition">
+                  <button
+                    onClick={() => openPharmacyDirections(shop)}
+                    className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition"
+                  >
                     Get Directions
                   </button>
-                  <button className="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl hover:bg-slate-50">
+                  <a
+                    href={`tel:${shop.contact.replace(/\s+/g, '')}`}
+                    className="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl hover:bg-slate-50"
+                    aria-label={`Call ${shop.name}`}
+                  >
                     <Phone size={20} className="text-green-600" />
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>
@@ -2351,13 +2651,83 @@ case 'pharmacy':
               </div>
             </div>
             <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
-              <div className="grid md:grid-cols-2 gap-4 text-sm">
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Name:</span> <span className="font-semibold text-slate-700">{user?.name || 'N/A'}</span></div>
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-700">{user?.email || 'N/A'}</span></div>
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Role:</span> <span className="font-semibold text-slate-700 capitalize">{user?.role || 'N/A'}</span></div>
+              {profileLoading ? (
+                <div className="text-sm text-slate-500">Loading profile...</div>
+              ) : (
+                <>
+                  <div className="grid md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <Label htmlFor="profile-name" className="text-sm font-medium text-slate-700">Full Name</Label>
+                      <Input
+                        id="profile-name"
+                        value={profileForm.name}
+                        onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="profile-email" className="text-sm font-medium text-slate-700">Email</Label>
+                      <Input id="profile-email" value={profileForm.email} readOnly className="mt-1.5 bg-slate-100" />
+                    </div>
+                    <div>
+                      <Label htmlFor="profile-phone" className="text-sm font-medium text-slate-700">Phone</Label>
+                      <Input
+                        id="profile-phone"
+                        value={profileForm.phone}
+                        onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <div className="p-3 rounded-xl bg-sky-50/60 mt-7">
+                      <span className="text-slate-500">Role:</span>{' '}
+                      <span className="font-semibold text-slate-700 capitalize">{user?.role || 'N/A'}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-3 gap-4 mt-4">
+                    <div>
+                      <Label htmlFor="profile-city" className="text-sm font-medium text-slate-700">City</Label>
+                      <Input
+                        id="profile-city"
+                        value={profileForm.city}
+                        onChange={(e) => setProfileForm((prev) => ({ ...prev, city: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="profile-state" className="text-sm font-medium text-slate-700">State</Label>
+                      <Input
+                        id="profile-state"
+                        value={profileForm.state}
+                        onChange={(e) => setProfileForm((prev) => ({ ...prev, state: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="profile-country" className="text-sm font-medium text-slate-700">Country</Label>
+                      <Input
+                        id="profile-country"
+                        value={profileForm.country}
+                        onChange={(e) => setProfileForm((prev) => ({ ...prev, country: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="mt-5 grid md:grid-cols-2 gap-4 text-sm">
                 <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Total Pets:</span> <span className="font-semibold text-slate-700">{myPets.length}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Location:</span> <span className="font-semibold text-slate-700">{[profileForm.city, profileForm.state, profileForm.country].filter(Boolean).join(', ') || 'Not set'}</span></div>
               </div>
               <div className="mt-5 flex gap-3">
+                <Button
+                  onClick={handleProfileSave}
+                  disabled={profileSaving || profileLoading}
+                  className="bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600"
+                >
+                  {profileSaving ? 'Saving...' : 'Save Profile'}
+                </Button>
                 <Button onClick={() => setActiveSection('my-pets')} className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
                   <PawPrint className="mr-2 h-4 w-4" /> View My Pets
                 </Button>
@@ -2525,7 +2895,10 @@ case 'pharmacy':
                   <Button onClick={() => setShowPassport(true)} className="bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30">
                     <QrCode className="mr-2 h-4 w-4" /> Pet Passport
                   </Button>
-                  <Button className="bg-white text-teal-600 hover:bg-white/90">
+                  <Button
+                    onClick={() => setActiveSection('vet-directory')}
+                    className="bg-white text-teal-600 hover:bg-white/90"
+                  >
                     <Calendar className="mr-2 h-4 w-4" /> Book Appointment
                   </Button>
                 </div>
@@ -2554,13 +2927,11 @@ case 'pharmacy':
             <section>
               <h3 className="text-lg font-semibold text-slate-800 mb-4">Recent Activity</h3>
               <div className="space-y-3">
-                {[
-                  { title: 'Vaccination due for Max', time: '2 days left', type: 'reminder' },
-                  { title: 'Dr. Sarah responded to your query', time: '1 hour ago', type: 'message' },
-                  { title: 'New training video available', time: '3 hours ago', type: 'content' },
-                  { title: 'New training video available', time: '3 hours ago', type: 'content' },
-                ].map((activity, i) => (
-                  <div key={i} className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50">
+                {(recentActivities.length
+                  ? recentActivities
+                  : [{ title: 'No recent activity yet', time: 'Just now', type: 'content', timestamp: Date.now() }]
+                ).map((activity, i) => (
+                  <div key={`${activity.title}-${activity.timestamp}-${i}`} className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-100 to-cyan-100 flex items-center justify-center">
                       {activity.type === 'reminder' && <Bell className="w-5 h-5 text-teal-600" />}
                       {activity.type === 'message' && <MessageSquare className="w-5 h-5 text-teal-600" />}
@@ -3188,19 +3559,6 @@ case 'pharmacy':
                   }
                   placeholder="Previous pet adoption/care experience"
                   className="min-h-20"
-                />
-              </div>
-
-              <div>
-                <Label className="text-sm font-semibold">Reason for Adoption *</Label>
-                <Textarea
-                  value={adoptionForm.reason}
-                  onChange={(event) =>
-                    setAdoptionForm((prev) => ({ ...prev, reason: event.target.value }))
-                  }
-                  placeholder="Why do you want to adopt?"
-                  className="min-h-20"
-                  required
                 />
               </div>
 

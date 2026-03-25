@@ -42,6 +42,9 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [city, setCity] = useState('')
+  const [state, setState] = useState('')
+  const [country, setCountry] = useState('')
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [vetForm, setVetForm] = useState<VetRegistrationForm>(initialVetForm)
@@ -102,6 +105,9 @@ export default function RegisterPage() {
     const normalizedName = name.trim()
     const normalizedEmail = email.trim().toLowerCase()
     const normalizedPhone = phone.trim()
+    const normalizedCity = city.trim()
+    const normalizedState = state.trim()
+    const normalizedCountry = country.trim()
 
     if (!selectedRole || !normalizedEmail || !password || !normalizedName) {
       alert('Please fill in all required fields')
@@ -151,6 +157,9 @@ export default function RegisterPage() {
 
       const signupResult = await signup(normalizedEmail, password, normalizedName, selectedRole, {
         phone: normalizedPhone,
+        city: normalizedCity,
+        state: normalizedState,
+        country: normalizedCountry,
         vetProfile: selectedRole === 'veterinarian'
           ? {
               specialty: vetForm.specialty,
@@ -394,6 +403,42 @@ export default function RegisterPage() {
                           inputMode="numeric"
                           maxLength={10}
                           pattern="[0-9]{10}"
+                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <Label htmlFor="city" className="text-sm font-medium text-slate-700">City</Label>
+                        <Input
+                          id="city"
+                          type="text"
+                          value={city}
+                          onChange={(e) => setCity(e.target.value)}
+                          placeholder="Your city"
+                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="state" className="text-sm font-medium text-slate-700">State</Label>
+                        <Input
+                          id="state"
+                          type="text"
+                          value={state}
+                          onChange={(e) => setState(e.target.value)}
+                          placeholder="Your state"
+                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="country" className="text-sm font-medium text-slate-700">Country</Label>
+                        <Input
+                          id="country"
+                          type="text"
+                          value={country}
+                          onChange={(e) => setCountry(e.target.value)}
+                          placeholder="Your country"
                           className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
                         />
                       </div>

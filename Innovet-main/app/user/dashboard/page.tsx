@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,9 @@ import { EmergencySOS } from '@/components/emergency-sos'
 import { PetPassport } from '@/components/pet-passport'
 import BookAppointmentModal from '@/components/BookAppointmentModal'
 import ChatbotPanel from '@/components/ChatbotPanel'
+import Appointments from '@/components/Appointments'
 import { useAuth } from '@/contexts/auth-context'
+import { supabase } from '@/lib/supabase'
 import {
   Menu,
   MessageSquare,
@@ -52,7 +54,44 @@ import {
   Globe,
 } from 'lucide-react'
 
-type ActiveSection = 'home' | 'vet-directory' | 'pharmacy' | 'training' | 'ngo' | 'community'
+type ActiveSection = 'home' | 'vet-directory' | 'appointments' | 'pharmacy' | 'training' | 'ngo' | 'community'
+
+type RecentActivityItem = {
+  title: string
+  time: string
+  type: 'reminder' | 'message' | 'content'
+  timestamp: number
+}
+
+const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+
+const formatRelativeTime = (value?: string | null) => {
+  if (!value) return 'Just now'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Just now'
+
+  const diffMs = Date.now() - date.getTime()
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+
+  if (diffMs < minute) return 'Just now'
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)} min ago`
+  if (diffMs < day) return `${Math.floor(diffMs / hour)} hr ago`
+  return `${Math.floor(diffMs / day)} day ago`
+}
+
+const mapNotificationActivityType = (type: unknown): 'reminder' | 'message' | 'content' => {
+  const normalizedType = normalizeText(type).toLowerCase()
+  if (normalizedType === 'appointment' || normalizedType === 'vaccination' || normalizedType === 'sos') {
+    return 'reminder'
+  }
+  if (normalizedType === 'medical' || normalizedType === 'prescription') {
+    return 'message'
+  }
+  return 'content'
+}
 
 export default function UserDashboard() {
   const { user, logout } = useAuth()
@@ -63,6 +102,46 @@ export default function UserDashboard() {
   const [feedback, setFeedback] = useState('')
   const [bookingModalOpen, setBookingModalOpen] = useState(false)
   const [selectedVet, setSelectedVet] = useState<any>(null)
+  const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([])
+
+  useEffect(() => {
+    const fetchRecentActivities = async () => {
+      if (!user?.id) {
+        setRecentActivities([])
+        return
+      }
+
+      const query = await supabase
+        .from('notifications')
+        .select('title,description,type,created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(4)
+
+      if (query.error) {
+        setRecentActivities([])
+        return
+      }
+
+      const mapped: RecentActivityItem[] = (query.data || []).map((row: any) => {
+        const timestampString = normalizeText(row?.created_at) || new Date().toISOString()
+        return {
+          title: normalizeText(row?.title) || normalizeText(row?.description) || 'New notification',
+          time: formatRelativeTime(timestampString),
+          type: mapNotificationActivityType(row?.type),
+          timestamp: new Date(timestampString).getTime(),
+        }
+      })
+
+      setRecentActivities(
+        mapped
+          .filter((item) => Number.isFinite(item.timestamp))
+          .sort((a, b) => b.timestamp - a.timestamp)
+      )
+    }
+
+    void fetchRecentActivities()
+  }, [user?.id])
 
   const handleLogout = () => {
     logout()
@@ -82,6 +161,7 @@ export default function UserDashboard() {
   const topNavItems = [
     { id: 'home' as const, label: 'Home', icon: PawPrint },
     { id: 'vet-directory' as const, label: 'Vet Directory', icon: Stethoscope },
+    { id: 'appointments' as const, label: 'My Appointments', icon: Calendar },
     { id: 'pharmacy' as const, label: 'Pharmacy', icon: Pill },
     { id: 'training' as const, label: 'Training', icon: GraduationCap },
     { id: 'ngo' as const, label: 'NGO', icon: Heart },
@@ -161,6 +241,45 @@ phImage: "/images/img/smartchemist.webp"
     }
   ];
 
+  const distanceToKm = (distance: string) => {
+    const numericValue = Number.parseFloat(distance.replace(/[^\d.]/g, ''))
+    if (!Number.isFinite(numericValue)) return Number.POSITIVE_INFINITY
+    return distance.toLowerCase().includes('m') && !distance.toLowerCase().includes('km')
+      ? numericValue / 1000
+      : numericValue
+  }
+
+  const pharmaciesSorted = [...pharmacies].sort(
+    (first, second) => distanceToKm(first.distance) - distanceToKm(second.distance)
+  )
+
+  const nearestPharmacy = pharmaciesSorted[0] || null
+
+  const buildMapsSearchUrl = (query: string) =>
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+
+  const openNearbyPharmacySearch = () => {
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const query = `pet pharmacy near ${position.coords.latitude},${position.coords.longitude}`
+          window.open(buildMapsSearchUrl(query), '_blank', 'noopener,noreferrer')
+        },
+        () => {
+          window.open(buildMapsSearchUrl('pet pharmacy near me'), '_blank', 'noopener,noreferrer')
+        }
+      )
+      return
+    }
+
+    window.open(buildMapsSearchUrl('pet pharmacy near me'), '_blank', 'noopener,noreferrer')
+  }
+
+  const openPharmacyDirections = (shop: (typeof pharmacies)[number]) => {
+    const destination = `${shop.name}, ${shop.address}`
+    window.open(buildMapsSearchUrl(destination), '_blank', 'noopener,noreferrer')
+  }
+
   const pharmacyProducts = [
     { name: 'Heartgard Plus', category: 'Medicine', price: '$45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
     { name: 'Premium Dog Food', category: 'Food', price: '$59.99', image: '/images/product-food.jpg', description: 'High-protein adult formula' },
@@ -237,7 +356,7 @@ phImage: "/images/img/smartchemist.webp"
     { icon: Bell, label: 'Notifications', action: () => router.push('/user/notifications') },
     { icon: Baby, label: 'Pet Nanny', action: () => router.push('/user/pet-nanny') },
     { icon: Utensils, label: 'Diet Plans', action: () => {} },
-    { icon: Calendar, label: 'Appointments', action: () => router.push('/user/appointments') },
+    { icon: Calendar, label: 'My Appointments', action: () => setActiveSection('appointments') },
     { icon: Settings, label: 'Settings', action: () => {} },
     { icon: LogOut, label: 'Logout', action: handleLogout },
   ]
@@ -246,6 +365,22 @@ phImage: "/images/img/smartchemist.webp"
     switch (activeSection) {
       case 'ai-chatbot':
         return <ChatbotPanel />
+
+      case 'appointments':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
+                <Calendar className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">My Appointments</h2>
+                <p className="text-sm text-slate-500">Track and manage consultations</p>
+              </div>
+            </div>
+            <Appointments />
+          </div>
+        )
 
       case 'vet-directory':
         return (
@@ -336,20 +471,28 @@ case 'pharmacy':
               <main className="max-w-7xl mx-auto px-4 py-12">
         <div className="flex justify-between items-center mb-8">
           <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
-          <button className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50">
+          <button
+            onClick={openNearbyPharmacySearch}
+            className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50"
+          >
             Use My Location
           </button>
         </div>
 
         {/* Div Blocks Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {pharmacies.map((shop) => (
+          {pharmaciesSorted.map((shop) => (
             <div key={shop.id} className="group bg-white rounded-3xl p-2 shadow-sm border border-slate-200 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <div className="bg-slate-100 rounded-2xl h-40 mb-4 overflow-hidden relative">
                 {/* Image Placeholder */}
                 <div className="absolute inset-0 flex items-center justify-center text-slate-300 italic">
                   <Image src={shop.phImage || "/placeholder.svg"} alt={shop.name} fill className="object-cover" />
                 </div>
+                {nearestPharmacy && nearestPharmacy.id === shop.id && (
+                  <div className="absolute top-3 left-3 bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                    Nearest Match
+                  </div>
+                )}
                 <div className="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-sm font-bold text-blue-600">
                   {shop.distance}
                 </div>
@@ -384,12 +527,19 @@ case 'pharmacy':
                 </div>
 
                 <div className="flex gap-2">
-                  <button className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition">
+                  <button
+                    onClick={() => openPharmacyDirections(shop)}
+                    className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition"
+                  >
                     Get Directions
                   </button>
-                  <button className="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl hover:bg-slate-50">
+                  <a
+                    href={`tel:${shop.contact.replace(/\s+/g, '')}`}
+                    className="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl hover:bg-slate-50"
+                    aria-label={`Call ${shop.name}`}
+                  >
                     <Phone size={20} className="text-green-600" />
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>
@@ -690,7 +840,10 @@ case 'pharmacy':
                   <Button onClick={() => setShowPassport(true)} className="bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30">
                     <QrCode className="mr-2 h-4 w-4" /> Pet Passport
                   </Button>
-                  <Button className="bg-white text-teal-600 hover:bg-white/90">
+                  <Button
+                    onClick={() => setActiveSection('vet-directory')}
+                    className="bg-white text-teal-600 hover:bg-white/90"
+                  >
                     <Calendar className="mr-2 h-4 w-4" /> Book Appointment
                   </Button>
                 </div>
@@ -719,13 +872,11 @@ case 'pharmacy':
             <section>
               <h3 className="text-lg font-semibold text-slate-800 mb-4">Recent Activity</h3>
               <div className="space-y-3">
-                {[
-                  { title: 'Vaccination due for Max', time: '2 days left', type: 'reminder' },
-                  { title: 'Dr. Sarah responded to your query', time: '1 hour ago', type: 'message' },
-                  { title: 'New training video available', time: '3 hours ago', type: 'content' },
-                  { title: 'New training video available', time: '3 hours ago', type: 'content' },
-                ].map((activity, i) => (
-                  <div key={i} className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50">
+                {(recentActivities.length
+                  ? recentActivities
+                  : [{ title: 'No recent activity yet', time: 'Just now', type: 'content', timestamp: Date.now() }]
+                ).map((activity, i) => (
+                  <div key={`${activity.title}-${activity.timestamp}-${i}`} className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-100 to-cyan-100 flex items-center justify-center">
                       {activity.type === 'reminder' && <Bell className="w-5 h-5 text-teal-600" />}
                       {activity.type === 'message' && <MessageSquare className="w-5 h-5 text-teal-600" />}

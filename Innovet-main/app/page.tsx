@@ -25,7 +25,7 @@ export default function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (selectedRole && email && password) {
-      login(email, password, selectedRole)
+      login(email, password)
       if (selectedRole === 'user') {
         router.push('/user/dashboard')
       } else if (selectedRole === 'veterinarian') {

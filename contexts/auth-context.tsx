@@ -86,6 +86,11 @@ const normalizePhone = (phone: unknown) => {
   return normalizedPhone || undefined
 }
 
+const normalizeLocationText = (value: unknown) => {
+  const normalizedValue = typeof value === 'string' ? value.trim() : ''
+  return normalizedValue || undefined
+}
+
 interface User {
   id: string
   email: string
@@ -107,6 +112,9 @@ export interface VetSignupProfile {
 
 interface SignupOptions {
   phone?: string
+  city?: string
+  state?: string
+  country?: string
   vetProfile?: VetSignupProfile
 }
 
@@ -121,6 +129,9 @@ type ProfileSeed = {
   name: string
   role: UserRole
   phone?: string
+  city?: string
+  state?: string
+  country?: string
   vetProfile?: VetSignupProfile
 }
 
@@ -175,6 +186,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (seed.phone) {
       payload.phone = seed.phone
+    }
+
+    if (seed.city) {
+      payload.city = seed.city
+    }
+
+    if (seed.state) {
+      payload.state = seed.state
+    }
+
+    if (seed.country) {
+      payload.country = seed.country
     }
 
     if (seed.role === 'veterinarian') {
@@ -450,6 +473,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 name: fallbackName,
                 role: fallbackRole,
                 phone: normalizePhone(metadata.phone),
+                city: normalizeLocationText(metadata.city),
+                state: normalizeLocationText(metadata.state),
+                country: normalizeLocationText(metadata.country),
                 vetProfile: fallbackVetProfile,
               },
               false
@@ -506,6 +532,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const normalizedEmail = email.trim().toLowerCase()
       const normalizedName = normalizeDisplayName(name, normalizedEmail)
       const normalizedPhone = normalizePhone(options?.phone)
+      const normalizedCity = normalizeLocationText(options?.city)
+      const normalizedState = normalizeLocationText(options?.state)
+      const normalizedCountry = normalizeLocationText(options?.country)
       const normalizedVetProfile =
         role === 'veterinarian' ? parseVetProfileFromUnknown(options?.vetProfile) : undefined
 
@@ -513,6 +542,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: normalizedName,
         role,
         phone: normalizedPhone || null,
+        city: normalizedCity || null,
+        state: normalizedState || null,
+        country: normalizedCountry || null,
       }
 
       if (role === 'veterinarian') {
@@ -539,6 +571,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: normalizedName,
           role,
           phone: normalizedPhone,
+          city: normalizedCity,
+          state: normalizedState,
+          country: normalizedCountry,
           vetProfile: normalizedVetProfile,
         }
 
@@ -618,6 +653,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               name: fallbackName,
               role: fallbackRole,
               phone: normalizePhone(metadata.phone),
+                city: normalizeLocationText(metadata.city),
+                state: normalizeLocationText(metadata.state),
+                country: normalizeLocationText(metadata.country),
               vetProfile: fallbackVetProfile,
             },
             false

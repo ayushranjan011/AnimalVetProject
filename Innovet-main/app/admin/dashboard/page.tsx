@@ -414,7 +414,6 @@ export default function AdminPanel() {
                   <div>
                     <h3 className="font-semibold text-slate-800">Flagged: "Aggressive pet training tips"</h3>
                     <p className="text-sm text-slate-600 mt-1">Posted by: Rajesh Kumar | 2 hours ago</p>
-                    <p className="text-sm text-slate-500 mt-2">Reason: Contains potentially harmful content</p>
                   </div>
                   <Badge className="bg-yellow-100 text-yellow-700">Under Review</Badge>
                 </div>

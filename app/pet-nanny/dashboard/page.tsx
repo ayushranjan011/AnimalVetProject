@@ -119,12 +119,12 @@ export default function PetNannyDashboardPage() {
       setError('')
       try {
         const linkedId = await resolveUsersId(user.id, user.email)
-        let profileQuery = await supabase.from('pet_nannies').select('*').eq('user_id', linkedId || user.id).maybeSingle()
+        let profileQuery = await supabase.from('pet_nannies').select('*').eq('user_id', linkedId || user.id).limit(1).maybeSingle()
         if (profileQuery.error) throw profileQuery.error
 
         let p = profileQuery.data as any
         if (!p) {
-          const byEmail = await supabase.from('pet_nannies').select('*').eq('email', user.email).maybeSingle()
+          const byEmail = await supabase.from('pet_nannies').select('*').eq('email', user.email).limit(1).maybeSingle()
           if (byEmail.error) throw byEmail.error
           p = byEmail.data
         }

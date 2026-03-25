@@ -135,6 +135,7 @@ export default function PetNannyRegisterPage() {
             .from('pet_nannies')
             .select('id')
             .eq('user_id', linkedUsersId)
+            .limit(1)
             .maybeSingle()
         : { data: null, error: null as any }
 
@@ -147,6 +148,7 @@ export default function PetNannyRegisterPage() {
             .from('pet_nannies')
             .select('id')
             .eq('email', normalizedEmail)
+            .limit(1)
             .maybeSingle()
         : { data: null, error: null as any }
 

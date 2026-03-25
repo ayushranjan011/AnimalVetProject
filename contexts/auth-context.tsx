@@ -59,6 +59,24 @@ const isPermissionError = (error: any) => {
   )
 }
 
+const formatSupabaseError = (error: any): string => {
+  if (!error) return 'Unknown error'
+  
+  const parts: string[] = []
+  
+  if (error.message) parts.push(`Message: ${error.message}`)
+  if (error.code) parts.push(`Code: ${error.code}`)
+  if (error.details) parts.push(`Details: ${error.details}`)
+  if (error.hint) parts.push(`Hint: ${error.hint}`)
+  if (error.status) parts.push(`Status: ${error.status}`)
+  
+  if (parts.length === 0) {
+    parts.push(`Error object: ${JSON.stringify(error)}`)
+  }
+  
+  return parts.join(' | ')
+}
+
 const normalizeUserRole = (role: unknown): UserRole => {
   if (role === 'veterinarian' || role === 'ngo' || role === 'pet_nanny') {
     return role
@@ -464,7 +482,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .maybeSingle()
 
           if (profileError) {
-            console.error('Session profile fetch error:', profileError)
+            console.error('Session profile fetch error:', formatSupabaseError(profileError))
           } else if (!profile) {
             await syncAppRecords(
               {
@@ -488,7 +506,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               .maybeSingle()
 
             if (profileReload.error) {
-              console.error('Session profile reload error:', profileReload.error)
+              console.error('Session profile reload error:', formatSupabaseError(profileReload.error))
             } else {
               profile = profileReload.data
             }
@@ -641,7 +659,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .maybeSingle()
 
         if (profileError) {
-          console.error('Profile fetch error:', profileError)
+          console.error('Profile fetch error:', formatSupabaseError(profileError))
           throw new Error('Failed to fetch user profile')
         }
 
@@ -668,7 +686,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .maybeSingle()
 
           if (profileReload.error) {
-            console.error('Profile reload error:', profileReload.error)
+            console.error('Profile reload error:', formatSupabaseError(profileReload.error))
             throw new Error('Failed to fetch user profile')
           }
 

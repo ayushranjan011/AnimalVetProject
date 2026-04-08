@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/contexts/auth-context'
-import { User, Stethoscope, Heart, ArrowRight, CheckCircle2, Upload, X, Loader2, PawPrint } from 'lucide-react'
+import { User, Stethoscope, Heart, ArrowRight, CheckCircle2, Upload, X, Loader2, PawPrint, Eye, EyeOff } from 'lucide-react'
 
 type UserRole = 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | null
 
@@ -54,10 +54,16 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [city, setCity] = useState('')
+  const [state, setState] = useState('')
+  const [country, setCountry] = useState('')
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formFeedback, setFormFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
   const [vetForm, setVetForm] = useState<VetRegistrationForm>(initialVetForm)
   const [ownerForm, setOwnerForm] = useState<OwnerRegistrationForm>(initialOwnerForm)
   const [vetImageFile, setVetImageFile] = useState<File | null>(null)
@@ -118,44 +124,48 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault()
+    setFormFeedback(null)
     const normalizedName = name.trim()
     const normalizedEmail = email.trim().toLowerCase()
     const normalizedPhone = phone.trim()
+    const normalizedCity = city.trim()
+    const normalizedState = state.trim()
+    const normalizedCountry = country.trim()
 
     if (!selectedRole || !normalizedEmail || !password || !normalizedName) {
-      alert('Please fill in all required fields')
+      setFormFeedback({ type: 'error', message: 'Please fill in all required fields.' })
       return
     }
 
     if (password !== confirmPassword) {
-      alert('Passwords do not match')
+      setFormFeedback({ type: 'error', message: 'Passwords do not match.' })
       return
     }
 
     if (password.length < 6) {
-      alert('Password must be at least 6 characters')
+      setFormFeedback({ type: 'error', message: 'Password must be at least 6 characters.' })
       return
     }
 
     if (normalizedPhone && normalizedPhone.length !== 10) {
-      alert('Phone number must be exactly 10 digits')
+      setFormFeedback({ type: 'error', message: 'Phone number must be exactly 10 digits.' })
       return
     }
 
     if (selectedRole === 'veterinarian' && !vetForm.specialty.trim()) {
-      alert('Please add veterinarian specialty')
+      setFormFeedback({ type: 'error', message: 'Please add veterinarian specialty.' })
       return
     }
 
     const parsedExperienceYears = vetForm.experienceYears.trim() ? Number(vetForm.experienceYears) : null
     if (parsedExperienceYears !== null && (!Number.isFinite(parsedExperienceYears) || parsedExperienceYears < 0)) {
-      alert('Experience years must be a valid positive number')
+      setFormFeedback({ type: 'error', message: 'Experience years must be a valid positive number.' })
       return
     }
 
     const parsedConsultationFee = vetForm.consultationFee.trim() ? Number(vetForm.consultationFee) : null
     if (parsedConsultationFee !== null && (!Number.isFinite(parsedConsultationFee) || parsedConsultationFee < 0)) {
-      alert('Consultation fee must be a valid positive number')
+      setFormFeedback({ type: 'error', message: 'Consultation fee must be a valid positive number.' })
       return
     }
 
@@ -170,6 +180,9 @@ export default function RegisterPage() {
 
       const signupResult = await signup(normalizedEmail, password, normalizedName, selectedRole, {
         phone: normalizedPhone,
+        city: normalizedCity,
+        state: normalizedState,
+        country: normalizedCountry,
         vetProfile: selectedRole === 'veterinarian'
           ? {
               specialty: vetForm.specialty,
@@ -197,10 +210,12 @@ export default function RegisterPage() {
       const successMessage = signupResult.warning
         ? `Registered successfully.\n\n${signupResult.warning}\n\nPlease login to continue.`
         : 'Registered successfully. Please login to continue.'
-      alert(successMessage)
-      router.push('/')
+      setFormFeedback({ type: 'success', message: successMessage.replace(/\n+/g, ' ') })
+      setTimeout(() => {
+        router.push('/')
+      }, 1200)
     } catch (error: any) {
-      alert('Registration failed: ' + error.message)
+      setFormFeedback({ type: 'error', message: `Registration failed: ${error?.message || 'Unknown error'}` })
     } finally {
       setIsSubmitting(false)
     }
@@ -398,6 +413,18 @@ export default function RegisterPage() {
                   </div>
 
                   <form onSubmit={handleRegister} className="space-y-5">
+                    {formFeedback && (
+                      <div
+                        className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+                          formFeedback.type === 'success'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-rose-200 bg-rose-50 text-rose-700'
+                        }`}
+                      >
+                        {formFeedback.message}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="name" className="text-sm font-medium text-slate-700">Full Name *</Label>
@@ -427,6 +454,42 @@ export default function RegisterPage() {
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <Label htmlFor="city" className="text-sm font-medium text-slate-700">City</Label>
+                        <Input
+                          id="city"
+                          type="text"
+                          value={city}
+                          onChange={(e) => setCity(e.target.value)}
+                          placeholder="Your city"
+                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="state" className="text-sm font-medium text-slate-700">State</Label>
+                        <Input
+                          id="state"
+                          type="text"
+                          value={state}
+                          onChange={(e) => setState(e.target.value)}
+                          placeholder="Your state"
+                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="country" className="text-sm font-medium text-slate-700">Country</Label>
+                        <Input
+                          id="country"
+                          type="text"
+                          value={country}
+                          onChange={(e) => setCountry(e.target.value)}
+                          placeholder="Your country"
+                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
+                        />
+                      </div>
+                    </div>
+
                     <div>
                       <Label htmlFor="email" className="text-sm font-medium text-slate-700">Email address *</Label>
                       <Input
@@ -443,27 +506,47 @@ export default function RegisterPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="password" className="text-sm font-medium text-slate-700">Password *</Label>
-                        <Input
-                          id="password"
-                          type="password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          required
-                          placeholder="Min 6 characters"
-                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
-                        />
+                        <div className="relative mt-1.5">
+                          <Input
+                            id="password"
+                            type={showPassword ? 'text' : 'password'}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            placeholder="Min 6 characters"
+                            className="h-11 rounded-xl border-slate-200 pr-11 focus:border-teal-400 focus:ring-teal-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                          </button>
+                        </div>
                       </div>
                       <div>
                         <Label htmlFor="confirmPassword" className="text-sm font-medium text-slate-700">Confirm Password *</Label>
-                        <Input
-                          id="confirmPassword"
-                          type="password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          required
-                          placeholder="Repeat password"
-                          className="mt-1.5 h-11 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
-                        />
+                        <div className="relative mt-1.5">
+                          <Input
+                            id="confirmPassword"
+                            type={showConfirmPassword ? 'text' : 'password'}
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            required
+                            placeholder="Repeat password"
+                            className="h-11 rounded-xl border-slate-200 pr-11 focus:border-teal-400 focus:ring-teal-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword((prev) => !prev)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                            aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                          >
+                            {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
 

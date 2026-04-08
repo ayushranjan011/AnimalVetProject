@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Calendar, Clock, MapPin, Video, AlertCircle, CheckCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { useAuth } from '@/contexts/auth-context'
+import { supabase } from '@/lib/supabase'
 
 interface Vet {
   name: string
@@ -24,6 +25,24 @@ interface BookingModalProps {
   vet: Vet | null
 }
 
+type PetPassportOption = {
+  id: string
+  petId: string
+  name: string
+}
+
+const isMissingColumnError = (error: any) => {
+  const message = String(error?.message || '').toLowerCase()
+  const details = String(error?.details || '').toLowerCase()
+  return (
+    error?.code === 'PGRST204' ||
+    error?.code === '42703' ||
+    message.includes('could not find') ||
+    message.includes('column') ||
+    details.includes('column')
+  )
+}
+
 const timeSlots = [
   '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
   '02:00 PM', '02:30 PM', '03:00 PM', '03:30 PM', '04:00 PM', '04:30 PM'
@@ -36,32 +55,79 @@ const dates = Array.from({ length: 7 }, (_, i) => {
 })
 
 export default function BookAppointmentModal({ isOpen, onClose, vet }: BookingModalProps) {
+  const { user } = useAuth()
   const [step, setStep] = useState<'type' | 'date-time' | 'details' | 'confirm'>('type')
   const [appointmentType, setAppointmentType] = useState<'Online' | 'In-clinic' | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedTime, setSelectedTime] = useState<string | null>(null)
-  const [petName, setPetName] = useState('')
-  const [notes, setNotes] = useState('')
+  const [selectedPetPassportId, setSelectedPetPassportId] = useState('')
+  const [problemDescription, setProblemDescription] = useState('')
+  const [petPassports, setPetPassports] = useState<PetPassportOption[]>([])
+  const [petPassportsLoading, setPetPassportsLoading] = useState(false)
+
+  useEffect(() => {
+    const fetchPetPassports = async () => {
+      if (!isOpen || !user?.id) {
+        setPetPassports([])
+        return
+      }
+
+      setPetPassportsLoading(true)
+      let query = await supabase
+        .from('pets')
+        .select('id, pet_id, name')
+        .eq('owner_id', user.id)
+        .order('name', { ascending: true })
+
+      if (query.error && isMissingColumnError(query.error)) {
+        query = await supabase
+          .from('pets')
+          .select('id, pet_id, name')
+          .eq('pet_owner_id', user.id)
+          .order('name', { ascending: true })
+      }
+
+      setPetPassportsLoading(false)
+
+      if (query.error) {
+        setPetPassports([])
+        return
+      }
+
+      setPetPassports(
+        (query.data || []).map((row: any) => ({
+          id: String(row.id || ''),
+          petId: String(row.pet_id || '').trim(),
+          name: String(row.name || '').trim() || 'Unnamed Pet',
+        }))
+      )
+    }
+
+    void fetchPetPassports()
+  }, [isOpen, user?.id])
 
   const handleClose = () => {
     setStep('type')
     setAppointmentType(null)
     setSelectedDate(null)
     setSelectedTime(null)
-    setPetName('')
-    setNotes('')
+    setSelectedPetPassportId('')
+    setProblemDescription('')
     onClose()
   }
 
   const handleBooking = () => {
+    const selectedPassport = petPassports.find((item) => item.id === selectedPetPassportId)
+
     // Store appointment data (will be sent to backend later)
     const appointmentData = {
       vetName: vet?.name,
       type: appointmentType,
       date: selectedDate?.toLocaleDateString(),
       time: selectedTime,
-      petName,
-      notes,
+      petName: selectedPassport?.name,
+      petPassportId: selectedPassport?.petId,
+      problemDescription,
       status: 'Pending',
       mode: appointmentType === 'Online' ? 'Online' : 'In-clinic'
     }
@@ -211,21 +277,34 @@ export default function BookAppointmentModal({ isOpen, onClose, vet }: BookingMo
             <h3 className="font-semibold text-slate-800">Appointment Details</h3>
 
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-1 block">Pet Name *</label>
-              <Input
-                placeholder="Enter your pet's name"
-                value={petName}
-                onChange={(e) => setPetName(e.target.value)}
-                className="border-gray-300"
-              />
+              <label className="text-sm font-medium text-slate-700 mb-1 block">Pet Passport *</label>
+              <select
+                value={selectedPetPassportId}
+                onChange={(e) => setSelectedPetPassportId(e.target.value)}
+                className="w-full h-10 rounded-md border border-gray-300 bg-white px-3 text-sm"
+                disabled={petPassportsLoading}
+              >
+                <option value="">
+                  {petPassportsLoading
+                    ? 'Loading pet passports...'
+                    : petPassports.length
+                    ? 'Select pet passport'
+                    : 'No pet passport found. Add pet profile first.'}
+                </option>
+                {petPassports.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}{item.petId ? ` (Passport: ${item.petId})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
-              <label className="text-sm font-medium text-slate-700 mb-1 block">Additional Notes</label>
+              <label className="text-sm font-medium text-slate-700 mb-1 block">Problem Description *</label>
               <Textarea
-                placeholder="Describe your pet's symptoms or concerns..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Describe your pet's issue or symptoms..."
+                value={problemDescription}
+                onChange={(e) => setProblemDescription(e.target.value)}
                 rows={4}
                 className="border-gray-300"
               />
@@ -243,7 +322,7 @@ export default function BookAppointmentModal({ isOpen, onClose, vet }: BookingMo
               <Button variant="outline" onClick={() => setStep('date-time')}>Back</Button>
               <Button
                 onClick={() => setStep('confirm')}
-                disabled={!petName}
+                disabled={!selectedPetPassportId || !problemDescription.trim()}
                 className="bg-teal-500 hover:bg-teal-600"
               >
                 Review Booking
@@ -281,8 +360,14 @@ export default function BookAppointmentModal({ isOpen, onClose, vet }: BookingMo
                 <span className="font-semibold text-slate-800">{selectedTime}</span>
               </div>
               <div className="flex items-start justify-between">
-                <span className="text-slate-600">Pet Name:</span>
-                <span className="font-semibold text-slate-800">{petName}</span>
+                <span className="text-slate-600">Pet Passport:</span>
+                <span className="font-semibold text-slate-800">
+                  {petPassports.find((item) => item.id === selectedPetPassportId)?.name || 'N/A'}
+                </span>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <span className="text-slate-600">Problem:</span>
+                <span className="font-semibold text-slate-800 text-right">{problemDescription}</span>
               </div>
             </div>
 

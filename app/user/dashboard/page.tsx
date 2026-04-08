@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { Suspense, useEffect, useState, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -72,6 +72,7 @@ import {
   Trash2,
   ChevronDown,
   UserCircle2,
+  IndianRupee,
 } from 'lucide-react'
 
 type ActiveSection =
@@ -147,31 +148,68 @@ type VetDirectoryItem = {
   prescriptions: string[]
 }
 
+type NgoDirectoryItem = {
+  id: string
+  name: string
+  type: 'Government' | 'Private'
+  volunteers: number
+  rescueVans: number
+  adoptions: number
+  contact: string
+  email: string
+  website: string
+  gallery: string[]
+}
+
+type VolunteerApplicationForm = {
+  fullName: string
+  email: string
+  phone: string
+  age: string
+  city: string
+  availability: string
+  skills: string
+  experience: string
+  idProofNumber: string
+  message: string
+}
+
+type PetHandoverForm = {
+  ownerName: string
+  ownerEmail: string
+  ownerPhone: string
+  handoverPetId: string
+}
+
+type NgoPetProfile = {
+  id: string
+  ngoId: string
+  name: string
+  type: string
+  breed: string
+  age: string
+  healthStatus: string
+  image: string
+  description: string
+}
+
+type PetAdoptionForm = {
+  applicantName: string
+  applicantEmail: string
+  applicantPhone: string
+  city: string
+  address: string
+  preferredPetType: string
+  experience: string
+  verificationIdNumber: string
+  requestPetPassport: boolean
+}
+
 type IncomingVideoCall = {
   notificationId: string
   title: string
   description: string
   roomID: string
-}
-
-type OwnerProfileForm = {
-  name: string
-  email: string
-  phone: string
-  location: string
-  city: string
-  state: string
-  country: string
-}
-
-const initialOwnerProfileForm: OwnerProfileForm = {
-  name: '',
-  email: '',
-  phone: '',
-  location: '',
-  city: '',
-  state: '',
-  country: '',
 }
 
 const mapToUsersRole = (
@@ -217,6 +255,34 @@ const isSetupPendingError = (error: any) => {
 
 const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
+const formatRelativeTime = (value?: string | null) => {
+  if (!value) return 'Just now'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Just now'
+
+  const diffMs = Date.now() - date.getTime()
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+
+  if (diffMs < minute) return 'Just now'
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)} min ago`
+  if (diffMs < day) return `${Math.floor(diffMs / hour)} hr ago`
+  return `${Math.floor(diffMs / day)} day ago`
+}
+
+const mapNotificationActivityType = (type: unknown): 'reminder' | 'message' | 'content' => {
+  const normalizedType = normalizeText(type).toLowerCase()
+  if (normalizedType === 'appointment' || normalizedType === 'vaccination' || normalizedType === 'sos') {
+    return 'reminder'
+  }
+  if (normalizedType === 'medical' || normalizedType === 'prescription') {
+    return 'message'
+  }
+  return 'content'
+}
+
 const getEmailPrefix = (value: unknown) => {
   const email = normalizeText(value)
   if (!email) return ''
@@ -253,7 +319,7 @@ const isVideoCallNotification = (row: any) => {
   )
 }
 
-export default function UserDashboard() {
+function UserDashboardContent() {
   const { user, logout } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -277,10 +343,6 @@ export default function UserDashboard() {
   const [vetsLoading, setVetsLoading] = useState(false)
   const [vetSearchTerm, setVetSearchTerm] = useState('')
   const [vetSchemaWarning, setVetSchemaWarning] = useState('')
-  const [ownerProfileForm, setOwnerProfileForm] = useState<OwnerProfileForm>(initialOwnerProfileForm)
-  const [ownerProfileLoading, setOwnerProfileLoading] = useState(false)
-  const [ownerProfileSaving, setOwnerProfileSaving] = useState(false)
-  const [ownerProfileSchemaWarning, setOwnerProfileSchemaWarning] = useState('')
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [incomingVideoCall, setIncomingVideoCall] = useState<IncomingVideoCall | null>(null)
   const [incomingVideoCallOpen, setIncomingVideoCallOpen] = useState(false)
@@ -288,6 +350,17 @@ export default function UserDashboard() {
   const [vetDietPlans, setVetDietPlans] = useState<any[]>([])
   const [dietPlansLoading, setDietPlansLoading] = useState(false)
   const [dietPlansError, setDietPlansError] = useState('')
+  const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([])
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileForm, setProfileForm] = useState<UserProfileForm>({
+    name: '',
+    email: '',
+    phone: '',
+    city: '',
+    state: '',
+    country: '',
+  })
   const [newPetForm, setNewPetForm] = useState({
     name: '',
     species: 'Dog',
@@ -307,6 +380,100 @@ export default function UserDashboard() {
   const handleLogout = () => {
     logout()
     router.push('/')
+  }
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!user?.id) {
+        setProfileForm({
+          name: '',
+          email: '',
+          phone: '',
+          city: '',
+          state: '',
+          country: '',
+        })
+        return
+      }
+
+      setProfileLoading(true)
+      let query = await supabase
+        .from('profiles')
+        .select('name, email, phone, city, state, country')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (query.error && isMissingColumnError(query.error)) {
+        query = await supabase
+          .from('profiles')
+          .select('name, email, phone')
+          .eq('id', user.id)
+          .maybeSingle()
+      }
+
+      setProfileLoading(false)
+
+      if (query.error) {
+        setProfileForm({
+          name: user.name || '',
+          email: user.email || '',
+          phone: '',
+          city: '',
+          state: '',
+          country: '',
+        })
+        return
+      }
+
+      const row = query.data || {}
+      setProfileForm({
+        name: normalizeText((row as any)?.name) || user.name || '',
+        email: normalizeText((row as any)?.email) || user.email || '',
+        phone: normalizeText((row as any)?.phone),
+        city: normalizeText((row as any)?.city),
+        state: normalizeText((row as any)?.state),
+        country: normalizeText((row as any)?.country),
+      })
+    }
+
+    void fetchUserProfile()
+  }, [user?.id, user?.email, user?.name])
+
+  const handleProfileSave = async () => {
+    if (!user?.id) return
+
+    setProfileSaving(true)
+    const fullPayload = {
+      name: profileForm.name.trim() || user.name,
+      phone: profileForm.phone.trim() || null,
+      city: profileForm.city.trim() || null,
+      state: profileForm.state.trim() || null,
+      country: profileForm.country.trim() || null,
+    }
+
+    let query = await supabase
+      .from('profiles')
+      .update(fullPayload)
+      .eq('id', user.id)
+
+    if (query.error && isMissingColumnError(query.error)) {
+      query = await supabase
+        .from('profiles')
+        .update({
+          name: profileForm.name.trim() || user.name,
+          phone: profileForm.phone.trim() || null,
+        })
+        .eq('id', user.id)
+    }
+
+    setProfileSaving(false)
+
+    if (query.error) {
+      alert(`Could not update profile: ${query.error.message}`)
+      return
+    }
+
+    alert('Profile updated successfully.')
   }
 
   const openIncomingVideoCallPopup = (row: any) => {
@@ -436,6 +603,34 @@ export default function UserDashboard() {
       URL.revokeObjectURL(previewUrl)
     }
   }, [petImageFile])
+
+  useEffect(() => {
+    if (!volunteerIdProofFile) {
+      setVolunteerIdProofPreview('')
+      return
+    }
+
+    const previewUrl = URL.createObjectURL(volunteerIdProofFile)
+    setVolunteerIdProofPreview(previewUrl)
+
+    return () => {
+      URL.revokeObjectURL(previewUrl)
+    }
+  }, [volunteerIdProofFile])
+
+  useEffect(() => {
+    if (!adoptionIdProofFile) {
+      setAdoptionIdProofPreview('')
+      return
+    }
+
+    const previewUrl = URL.createObjectURL(adoptionIdProofFile)
+    setAdoptionIdProofPreview(previewUrl)
+
+    return () => {
+      URL.revokeObjectURL(previewUrl)
+    }
+  }, [adoptionIdProofFile])
 
   useEffect(() => {
     const resolveOwnerId = async () => {
@@ -745,6 +940,81 @@ export default function UserDashboard() {
   }, [activeSection])
 
   useEffect(() => {
+    const fetchNgos = async () => {
+      setNgosLoading(true)
+      setNgoSchemaWarning('')
+
+      const primaryQuery = await supabase
+        .from('profiles')
+        .select('id, email, name, role, phone')
+        .eq('role', 'ngo')
+        .order('created_at', { ascending: false })
+
+      let ngoRows: any[] = (primaryQuery.data as any[]) || []
+      let error: any = primaryQuery.error
+
+      if (error || ngoRows.length === 0) {
+        const fallbackUsers = await supabase
+          .from('users')
+          .select('id, email, full_name, role')
+          .eq('role', 'ngo')
+
+        if (fallbackUsers.error) {
+          if (error) {
+            error = `${formatSupabaseError(error)} | ${formatSupabaseError(fallbackUsers.error)}`
+          } else {
+            error = fallbackUsers.error
+          }
+        } else {
+          error = null
+          ngoRows = (fallbackUsers.data || []).map((row: any) => ({
+            id: row.id,
+            email: row.email,
+            name: row.full_name,
+            role: row.role,
+            phone: '',
+          }))
+        }
+      }
+
+      setNgosLoading(false)
+
+      if (error) {
+        console.error('Failed to fetch NGOs:', error)
+        setNgoSchemaWarning(
+          'NGO records not available yet. Please ensure NGO users are registered in profiles/users table.'
+        )
+        setNgos([])
+        return
+      }
+
+      const mappedNgos: NgoDirectoryItem[] = ngoRows.map((row: any, index: number) => {
+        const id = String(row.id || `ngo-${index}`)
+        const displayName = normalizeText(row.name) || getEmailPrefix(row.email) || 'NGO Organization'
+
+        return {
+          id,
+          name: displayName,
+          type: index % 2 === 0 ? 'Government' : 'Private',
+          volunteers: 50 + index * 15,
+          rescueVans: 2 + (index % 5),
+          adoptions: 20 + index * 12,
+          contact: normalizeText(row.phone) || 'Contact not provided',
+          email: normalizeText(row.email) || 'Email not provided',
+          website: 'Not provided',
+          gallery: ['/images/rescue-dog-1.jpg', '/images/rescue-cat-1.jpg', '/images/pet-dog-1.jpg'],
+        }
+      })
+
+      setNgos(mappedNgos)
+    }
+
+    if (activeSection === 'ngo') {
+      fetchNgos()
+    }
+  }, [activeSection])
+
+  useEffect(() => {
     const fetchUnreadNotificationCount = async () => {
       if (!user?.id) {
         setUnreadNotificationCount(0)
@@ -861,6 +1131,86 @@ export default function UserDashboard() {
     setIncomingVideoCallOpen(false)
     router.push(`/user/video-call?roomID=${encodeURIComponent(incomingVideoCall.roomID)}`)
   }
+
+  useEffect(() => {
+    const fetchRecentActivities = async () => {
+      if (!user?.id) {
+        setRecentActivities([])
+        return
+      }
+
+      const activities: RecentActivityItem[] = []
+
+      const notificationsQuery = await supabase
+        .from('notifications')
+        .select('id, title, description, type, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      if (!notificationsQuery.error) {
+        for (const row of notificationsQuery.data || []) {
+          const timestampString =
+            normalizeText((row as any)?.created_at) || new Date().toISOString()
+
+          activities.push({
+            title:
+              normalizeText((row as any)?.title) ||
+              normalizeText((row as any)?.description) ||
+              'New notification',
+            time: formatRelativeTime(timestampString),
+            type: mapNotificationActivityType((row as any)?.type),
+            timestamp: new Date(timestampString).getTime(),
+          })
+        }
+      }
+
+      let appointmentsQuery = await supabase
+        .from('appointments')
+        .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date')
+        .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      if (appointmentsQuery.error && isMissingColumnError(appointmentsQuery.error, 'created_at')) {
+        appointmentsQuery = await supabase
+          .from('appointments')
+          .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date')
+          .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
+          .order('date', { ascending: false })
+          .limit(5)
+      }
+
+      if (!appointmentsQuery.error) {
+        for (const row of appointmentsQuery.data || []) {
+          const petName = normalizeText((row as any)?.pet_name) || 'your pet'
+          const status = normalizeText((row as any)?.status) || 'updated'
+          const timestampString =
+            normalizeText((row as any)?.created_at) ||
+            normalizeText((row as any)?.date) ||
+            normalizeText((row as any)?.appointment_date) ||
+            normalizeText((row as any)?.scheduled_date) ||
+            new Date().toISOString()
+
+          activities.push({
+            title: `Appointment ${status.toLowerCase()} for ${petName}`,
+            time: formatRelativeTime(timestampString),
+            type: 'reminder',
+            timestamp: new Date(timestampString).getTime(),
+          })
+        }
+      }
+
+      const sorted = activities
+        .filter((item) => Number.isFinite(item.timestamp))
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 4)
+
+      setRecentActivities(sorted)
+    }
+
+    void fetchRecentActivities()
+  }, [user?.id, unreadNotificationCount, incomingVideoCall?.notificationId])
 
   useEffect(() => {
     const fetchDietPlans = async () => {
@@ -1048,6 +1398,382 @@ export default function UserDashboard() {
     return payload.path
   }
 
+  const resetVolunteerForm = () => {
+    setVolunteerForm({
+      fullName: user?.name || '',
+      email: user?.email || '',
+      phone: '',
+      age: '',
+      city: '',
+      availability: '',
+      skills: '',
+      experience: '',
+      idProofNumber: '',
+      message: '',
+    })
+    setVolunteerIdProofFile(null)
+    setSelectedNgo(null)
+  }
+
+  const openVolunteerForm = (ngo: NgoDirectoryItem) => {
+    setSelectedNgo(ngo)
+    setVolunteerForm({
+      fullName: user?.name || '',
+      email: user?.email || '',
+      phone: '',
+      age: '',
+      city: '',
+      availability: '',
+      skills: '',
+      experience: '',
+      idProofNumber: '',
+      message: '',
+    })
+    setVolunteerIdProofFile(null)
+    setShowVolunteerForm(true)
+  }
+
+  const closeVolunteerForm = () => {
+    setShowVolunteerForm(false)
+    resetVolunteerForm()
+  }
+
+  const uploadVolunteerIdProof = async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch('/api/upload-volunteer-id-proof', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      throw new Error(payload.error || 'ID proof upload failed')
+    }
+
+    const payload = (await response.json()) as { path?: string }
+    if (!payload.path) {
+      throw new Error('Invalid upload response')
+    }
+
+    return payload.path
+  }
+
+  const handleVolunteerFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!selectedNgo) {
+      alert('Please select an NGO first.')
+      return
+    }
+
+    if (
+      !volunteerForm.fullName.trim() ||
+      !volunteerForm.email.trim() ||
+      !volunteerForm.phone.trim() ||
+      !volunteerForm.idProofNumber.trim()
+    ) {
+      alert('Please fill all required volunteer details.')
+      return
+    }
+
+    if (!volunteerIdProofFile) {
+      alert('Please upload ID proof.')
+      return
+    }
+
+    try {
+      setSubmittingVolunteerForm(true)
+      const idProofPath = await uploadVolunteerIdProof(volunteerIdProofFile)
+      const ownerId = petOwnerId || user?.id || null
+      const ngoId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        selectedNgo.id
+      )
+        ? selectedNgo.id
+        : null
+
+      const payload = {
+        user_id: ownerId,
+        ngo_id: ngoId,
+        ngo_name: selectedNgo.name,
+        applicant_name: volunteerForm.fullName.trim(),
+        applicant_email: volunteerForm.email.trim().toLowerCase(),
+        applicant_phone: volunteerForm.phone.trim(),
+        age: volunteerForm.age.trim() ? Number(volunteerForm.age.trim()) : null,
+        city: volunteerForm.city.trim() || null,
+        availability: volunteerForm.availability.trim() || null,
+        skills: volunteerForm.skills.trim() || null,
+        experience: volunteerForm.experience.trim() || null,
+        id_proof_number: volunteerForm.idProofNumber.trim(),
+        id_proof_url: idProofPath,
+        message: volunteerForm.message.trim() || null,
+        status: 'pending',
+      }
+
+      const { error } = await supabase.from('volunteer_applications').insert(payload)
+
+      if (error) {
+        const formatted = formatSupabaseError(error)
+        console.error('Volunteer application failed:', formatted)
+
+        if (isSetupPendingError(error)) {
+          alert(
+            'Volunteer form database setup pending. Please run volunteer_applications_schema.sql in Supabase SQL Editor.'
+          )
+        } else {
+          alert('Could not submit volunteer application. Please try again.')
+        }
+        return
+      }
+
+      alert('Volunteer application submitted successfully.')
+      closeVolunteerForm()
+    } catch (error: any) {
+      console.error(error)
+      alert(error?.message || 'Could not submit volunteer application.')
+    } finally {
+      setSubmittingVolunteerForm(false)
+    }
+  }
+
+  const resetHandoverForm = () => {
+    setHandoverForm({
+      ownerName: user?.name || '',
+      ownerEmail: user?.email || '',
+      ownerPhone: '',
+      handoverPetId: '',
+    })
+    setSelectedHandoverNgo(null)
+  }
+
+  const openHandoverForm = (ngo: NgoDirectoryItem) => {
+    setSelectedHandoverNgo(ngo)
+    setHandoverForm({
+      ownerName: user?.name || '',
+      ownerEmail: user?.email || '',
+      ownerPhone: '',
+      handoverPetId: '',
+    })
+    setShowHandoverForm(true)
+  }
+
+  const closeHandoverForm = () => {
+    setShowHandoverForm(false)
+    resetHandoverForm()
+  }
+
+  const handleHandoverFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!selectedHandoverNgo) {
+      alert('Please select NGO first.')
+      return
+    }
+
+    if (
+      !handoverForm.ownerName.trim() ||
+      !handoverForm.ownerEmail.trim() ||
+      !handoverForm.ownerPhone.trim() ||
+      !handoverForm.handoverPetId
+    ) {
+      alert('Please fill all required fields and select pet for handover.')
+      return
+    }
+
+    const selectedHandoverPet = myPets.find((pet) => pet.id === handoverForm.handoverPetId)
+    if (!selectedHandoverPet) {
+      alert('Selected pet not found. Please choose a valid pet.')
+      return
+    }
+
+    const ngoId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      selectedHandoverNgo.id
+    )
+      ? selectedHandoverNgo.id
+      : null
+
+    try {
+      setSubmittingHandoverForm(true)
+
+      const payload = {
+        user_id: petOwnerId || user?.id || null,
+        ngo_id: ngoId,
+        ngo_name: selectedHandoverNgo.name,
+        owner_name: handoverForm.ownerName.trim(),
+        owner_email: handoverForm.ownerEmail.trim().toLowerCase(),
+        owner_phone: handoverForm.ownerPhone.trim(),
+        pet_name: selectedHandoverPet.name,
+        pet_type: selectedHandoverPet.type,
+        pet_breed: selectedHandoverPet.breed,
+        pet_age: selectedHandoverPet.age,
+        reason: 'Owner requested pet handover to NGO.',
+        health_notes: selectedHandoverPet.notes || null,
+        pet_passport_requested: true,
+        passport_pet_id: selectedHandoverPet.id,
+        passport_snapshot: {
+          pet_id: selectedHandoverPet.petId || null,
+          pet_name: selectedHandoverPet.name || null,
+          pet_type: selectedHandoverPet.type || null,
+          breed: selectedHandoverPet.breed || null,
+          age: selectedHandoverPet.age || null,
+          microchip_id: selectedHandoverPet.microchipId || null,
+        },
+        verification_status: 'pending',
+        status: 'pending',
+      }
+
+      const { error } = await supabase.from('pet_handover_requests').insert(payload)
+      if (error) {
+        if (isSetupPendingError(error)) {
+          alert('Pet handover table setup pending. Please run pet_handover_requests_schema.sql in Supabase SQL Editor.')
+        } else {
+          alert('Could not submit handover request. Please try again.')
+        }
+        return
+      }
+
+      alert('Pet handover request submitted successfully.')
+      closeHandoverForm()
+    } catch (error) {
+      console.error('Pet handover request error:', error)
+      alert('Could not submit handover request.')
+    } finally {
+      setSubmittingHandoverForm(false)
+    }
+  }
+
+  const resetAdoptionForm = () => {
+    setAdoptionForm({
+      applicantName: user?.name || '',
+      applicantEmail: user?.email || '',
+      applicantPhone: '',
+      city: '',
+      address: '',
+      preferredPetType: 'Dog',
+      experience: '',
+      verificationIdNumber: '',
+      requestPetPassport: true,
+    })
+    setAdoptionIdProofFile(null)
+    setSelectedAdoptionNgo(null)
+    setSelectedAdoptionPet(null)
+  }
+
+  const openNgoPetProfiles = (ngo: NgoDirectoryItem) => {
+    setSelectedNgoForProfiles(ngo)
+    setShowNgoPetProfiles(true)
+  }
+
+  const closeNgoPetProfiles = () => {
+    setShowNgoPetProfiles(false)
+    setSelectedNgoForProfiles(null)
+  }
+
+  const openAdoptionForm = (ngo: NgoDirectoryItem, ngoPet: NgoPetProfile) => {
+    setSelectedAdoptionNgo(ngo)
+    setSelectedAdoptionPet(ngoPet)
+    setAdoptionForm({
+      applicantName: user?.name || '',
+      applicantEmail: user?.email || '',
+      applicantPhone: '',
+      city: '',
+      address: '',
+      preferredPetType: ngoPet.type,
+      experience: '',
+      verificationIdNumber: '',
+      requestPetPassport: true,
+    })
+    setAdoptionIdProofFile(null)
+    setShowNgoPetProfiles(false)
+    setShowAdoptionForm(true)
+  }
+
+  const closeAdoptionForm = () => {
+    setShowAdoptionForm(false)
+    resetAdoptionForm()
+  }
+
+  const handleAdoptionFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!selectedAdoptionNgo) {
+      alert('Please select NGO first.')
+      return
+    }
+    if (!selectedAdoptionPet) {
+      alert('Please choose a pet profile first.')
+      return
+    }
+
+    if (
+      !adoptionForm.applicantName.trim() ||
+      !adoptionForm.applicantEmail.trim() ||
+      !adoptionForm.applicantPhone.trim() ||
+      !adoptionForm.city.trim() ||
+      !adoptionForm.address.trim() ||
+      !adoptionForm.verificationIdNumber.trim()
+    ) {
+      alert('Please fill all required fields including verification details.')
+      return
+    }
+
+    if (!adoptionIdProofFile) {
+      alert('Please upload verification ID proof image.')
+      return
+    }
+
+    const ngoId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      selectedAdoptionNgo.id
+    )
+      ? selectedAdoptionNgo.id
+      : null
+
+    try {
+      setSubmittingAdoptionForm(true)
+      const idProofPath = await uploadVolunteerIdProof(adoptionIdProofFile)
+
+      const payload = {
+        user_id: petOwnerId || user?.id || null,
+        ngo_id: ngoId,
+        ngo_name: selectedAdoptionNgo.name,
+        ngo_pet_id: selectedAdoptionPet.id,
+        ngo_pet_name: selectedAdoptionPet.name,
+        applicant_name: adoptionForm.applicantName.trim(),
+        applicant_email: adoptionForm.applicantEmail.trim().toLowerCase(),
+        applicant_phone: adoptionForm.applicantPhone.trim(),
+        city: adoptionForm.city.trim(),
+        address: adoptionForm.address.trim(),
+        preferred_pet_type: selectedAdoptionPet.type,
+        experience: adoptionForm.experience.trim() || null,
+        reason: 'Not provided by applicant',
+        verification_id_number: adoptionForm.verificationIdNumber.trim(),
+        verification_id_proof_url: idProofPath,
+        pet_passport_requested: adoptionForm.requestPetPassport,
+        verification_status: 'pending',
+        status: 'pending',
+      }
+
+      const { error } = await supabase.from('pet_adoption_requests').insert(payload)
+      if (error) {
+        if (isSetupPendingError(error)) {
+          alert('Pet adoption table setup pending. Please run pet_adoption_requests_schema.sql in Supabase SQL Editor.')
+        } else {
+          alert('Could not submit adoption request. Please try again.')
+        }
+        return
+      }
+
+      alert('Adoption request submitted successfully.')
+      closeAdoptionForm()
+    } catch (error) {
+      console.error('Adoption request error:', error)
+      alert('Could not submit adoption request.')
+    } finally {
+      setSubmittingAdoptionForm(false)
+    }
+  }
+
   const handleAddPetSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!newPetForm.name.trim()) return
@@ -1197,6 +1923,60 @@ phImage: "/images/img/smartchemist.webp"
     }
   ];
 
+  const distanceToKm = (distance: string) => {
+    const numericValue = Number.parseFloat(distance.replace(/[^\d.]/g, ''))
+    if (!Number.isFinite(numericValue)) return Number.POSITIVE_INFINITY
+    return distance.toLowerCase().includes('m') && !distance.toLowerCase().includes('km')
+      ? numericValue / 1000
+      : numericValue
+  }
+
+  const normalizedCity = normalizeText(profileForm.city).toLowerCase()
+  const normalizedState = normalizeText(profileForm.state).toLowerCase()
+  const normalizedCountry = normalizeText(profileForm.country).toLowerCase()
+  const userLocationParts = [profileForm.city, profileForm.state, profileForm.country]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+  const userLocationQuery = userLocationParts.join(', ')
+
+  const locationScoreForPharmacy = (address: string) => {
+    if (!normalizedCity && !normalizedState && !normalizedCountry) return 0
+    const normalizedAddress = address.toLowerCase()
+    let score = 0
+    if (normalizedCity && normalizedAddress.includes(normalizedCity)) score += 3
+    if (normalizedState && normalizedAddress.includes(normalizedState)) score += 2
+    if (normalizedCountry && normalizedAddress.includes(normalizedCountry)) score += 1
+    return score
+  }
+
+  const pharmaciesSorted = [...pharmacies].sort((first, second) => {
+    const scoreDiff =
+      locationScoreForPharmacy(second.address) - locationScoreForPharmacy(first.address)
+    if (scoreDiff !== 0) return scoreDiff
+    return distanceToKm(first.distance) - distanceToKm(second.distance)
+  })
+
+  const nearestPharmacy = pharmaciesSorted[0] || null
+
+  const buildMapsSearchUrl = (query: string) =>
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+
+  const openNearbyPharmacySearch = () => {
+    const query = userLocationQuery
+      ? `pet pharmacy near ${userLocationQuery}`
+      : 'pet pharmacy near me'
+    window.open(buildMapsSearchUrl(query), '_blank', 'noopener,noreferrer')
+  }
+
+  const openPharmacyDirections = (shop: (typeof pharmacies)[number]) => {
+    const destination = `${shop.name}, ${shop.address}`
+    const url = userLocationQuery
+      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(userLocationQuery)}&destination=${encodeURIComponent(destination)}`
+      : buildMapsSearchUrl(destination)
+
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   const profileLocationSummary = [
     ownerProfileForm.location,
     ownerProfileForm.city,
@@ -1254,32 +2034,34 @@ phImage: "/images/img/smartchemist.webp"
     { title: 'Virtual Vet Consultation', time: 'Sat 2:00 PM', instructor: 'Dr. Michael Chen', attendees: 15 },
   ]
 
-  const ngos = [
-    { 
-      name: 'Pet Rescue Foundation', 
-      type: 'Government', 
-      // donations: '₹125,000',
-      volunteers: 250,
-      rescueVans: 8,
-      adoptions: 320,
-      contact: '+1 (555) 111-2222',
-      email: 'contact@petrescue.gov',
-      website: 'www.petrescue.gov',
-      gallery: ['/images/rescue-dog-1.jpg', '/images/rescue-cat-1.jpg', '/images/pet-dog-1.jpg'],
+  const ngoPetProfiles: NgoPetProfile[] = ngos.flatMap((ngo, ngoIndex) => ([
+    {
+      id: `${ngo.id}-pet-1`,
+      ngoId: ngo.id,
+      name: `Buddy ${ngoIndex + 1}`,
+      type: 'Dog',
+      breed: 'Labrador Mix',
+      age: '2 years',
+      healthStatus: 'Vaccinated',
+      image: '/images/rescue-dog-1.jpg',
+      description: 'Friendly and social. Good with families.',
     },
-    { 
-      name: 'Animal Welfare Society', 
-      type: 'Private', 
-      // donations: '₹89,000',
-      volunteers: 180,
-      rescueVans: 5,
-      adoptions: 215,
-      contact: '+1 (555) 333-4444',
-      email: 'help@animalwelfare.org',
-      website: 'www.animalwelfare.org',
-      gallery: ['/images/pet-cat-1.jpg', '/images/pet-dog-2.jpg', '/images/animal-cow-1.jpg'],
+    {
+      id: `${ngo.id}-pet-2`,
+      ngoId: ngo.id,
+      name: `Milo ${ngoIndex + 1}`,
+      type: 'Cat',
+      breed: 'Indian Shorthair',
+      age: '1 year',
+      healthStatus: 'Healthy',
+      image: '/images/rescue-cat-1.jpg',
+      description: 'Calm nature, litter trained, indoor-friendly.',
     },
-  ]
+  ]))
+
+  const selectedNgoPetProfiles = selectedNgoForProfiles
+    ? ngoPetProfiles.filter((pet) => pet.ngoId === selectedNgoForProfiles.id)
+    : []
 
   const blogs = [
     { title: '10 Tips for First-Time Pet Owners', author: 'Dr. Sarah Johnson', date: 'Jan 15, 2026', image: '/images/blog-1.jpg', likes: 234 },
@@ -1544,33 +2326,28 @@ case 'pharmacy':
             </div>
 
             <Tabs defaultValue="all" className="w-full">
-      <main className="max-w-7xl mx-auto px-4 py-12">
+              <main className="max-w-7xl mx-auto px-4 py-12">
         <div className="flex justify-between items-center mb-8">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              {profileLocationSummary
-                ? `Using profile location: ${profileLocationSummary}`
-                : 'Add place/city/state/country in My Profile for better nearest pharmacy results.'}
-            </p>
-          </div>
-          <button
-            className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50"
-            onClick={() => setActiveSection('my-profile')}
-          >
-            Update Location
+          <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
+          <button className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50">
+            Use My Location
           </button>
         </div>
 
         {/* Div Blocks Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredPharmacies.map((shop) => (
+          {pharmacies.map((shop) => (
             <div key={shop.id} className="group bg-white rounded-3xl p-2 shadow-sm border border-slate-200 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <div className="bg-slate-100 rounded-2xl h-40 mb-4 overflow-hidden relative">
                 {/* Image Placeholder */}
                 <div className="absolute inset-0 flex items-center justify-center text-slate-300 italic">
                   <Image src={shop.phImage || "/placeholder.svg"} alt={shop.name} fill className="object-cover" />
                 </div>
+                {nearestPharmacy && nearestPharmacy.id === shop.id && (
+                  <div className="absolute top-3 left-3 bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                    Nearest Match
+                  </div>
+                )}
                 <div className="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-sm font-bold text-blue-600">
                   {shop.distance}
                 </div>
@@ -1605,12 +2382,19 @@ case 'pharmacy':
                 </div>
 
                 <div className="flex gap-2">
-                  <button className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition">
+                  <button
+                    onClick={() => openPharmacyDirections(shop)}
+                    className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition"
+                  >
                     Get Directions
                   </button>
-                  <button className="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl hover:bg-slate-50">
+                  <a
+                    href={`tel:${shop.contact.replace(/\s+/g, '')}`}
+                    className="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl hover:bg-slate-50"
+                    aria-label={`Call ${shop.name}`}
+                  >
                     <Phone size={20} className="text-green-600" />
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>
@@ -1748,8 +2532,26 @@ case 'pharmacy':
               </div>
             </div>
 
+            {ngoSchemaWarning && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800">
+                {ngoSchemaWarning}
+              </div>
+            )}
+
+            {ngosLoading && (
+              <div className="rounded-xl border border-white/50 bg-white/70 p-4 text-sm text-slate-600">
+                Loading NGO partners...
+              </div>
+            )}
+
+            {!ngosLoading && ngos.length === 0 && (
+              <div className="rounded-xl border border-white/50 bg-white/70 p-4 text-sm text-slate-600">
+                No NGO registrations found yet.
+              </div>
+            )}
+
             {ngos.map((ngo) => (
-              <div key={ngo.name} className="p-6 rounded-2xl bg-gradient-to-br from-white/80 to-rose-50/30 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
+              <div key={ngo.id} className="p-6 rounded-2xl bg-gradient-to-br from-white/80 to-rose-50/30 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
                 <div className="flex flex-col lg:flex-row gap-6">
                   <div className="lg:w-1/3">
                     <div className="flex items-center gap-3 mb-4">
@@ -1808,13 +2610,28 @@ case 'pharmacy':
                 
                 <div className="flex flex-wrap gap-3 mt-6 pt-4 border-t border-rose-100">
                   <Button className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600">
-                    <DollarSign className="mr-2 h-4 w-4" /> Donate Now
+                    <IndianRupee className="mr-2 h-4 w-4" /> Donate (Rs)
                   </Button>
-                  <Button variant="outline" className="border-rose-200 text-rose-600 hover:bg-rose-50 bg-transparent ">
+                  <Button
+                    variant="outline"
+                    className="border-rose-200 text-rose-600 hover:bg-rose-50 bg-transparent"
+                    onClick={() => openVolunteerForm(ngo)}
+                  >
                     <HandHeart className="mr-2 h-4 w-4" /> Volunteer
                   </Button>
-                  <Button variant="outline" className="border-rose-200 text-rose-600 hover:bg-rose-50 bg-transparent">
+                  <Button
+                    variant="outline"
+                    className="border-rose-200 text-rose-600 hover:bg-rose-50 bg-transparent"
+                    onClick={() => openNgoPetProfiles(ngo)}
+                  >
                     <PawPrint className="mr-2 h-4 w-4" /> Adopt
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="border-rose-200 text-rose-600 hover:bg-rose-50 bg-transparent"
+                    onClick={() => openHandoverForm(ngo)}
+                  >
+                    <PawPrint className="mr-2 h-4 w-4" /> Pet Handover
                   </Button>
                 </div>
               </div>
@@ -1916,143 +2733,20 @@ case 'pharmacy':
               </div>
             </div>
             <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
-              {ownerProfileLoading ? (
-                <div className="text-sm text-slate-500">Loading profile...</div>
-              ) : (
-                <form className="space-y-5" onSubmit={handleOwnerProfileSave}>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">Full Name</Label>
-                      <Input
-                        value={ownerProfileForm.name}
-                        onChange={(event) =>
-                          setOwnerProfileForm((prev) => ({ ...prev, name: event.target.value }))
-                        }
-                        className="mt-1.5 h-11 rounded-xl border-slate-200"
-                        placeholder="Your full name"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">Email</Label>
-                      <Input
-                        value={ownerProfileForm.email}
-                        className="mt-1.5 h-11 rounded-xl border-slate-200 bg-slate-100/70"
-                        readOnly
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">Phone</Label>
-                      <Input
-                        value={ownerProfileForm.phone}
-                        onChange={(event) =>
-                          setOwnerProfileForm((prev) => ({
-                            ...prev,
-                            phone: event.target.value.replace(/\D/g, '').slice(0, 10),
-                          }))
-                        }
-                        className="mt-1.5 h-11 rounded-xl border-slate-200"
-                        placeholder="10-digit number"
-                        inputMode="numeric"
-                        maxLength={10}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">Place / Area</Label>
-                      <Input
-                        value={ownerProfileForm.location}
-                        onChange={(event) =>
-                          setOwnerProfileForm((prev) => ({ ...prev, location: event.target.value }))
-                        }
-                        className="mt-1.5 h-11 rounded-xl border-slate-200"
-                        placeholder="Sector 18"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">City</Label>
-                      <Input
-                        value={ownerProfileForm.city}
-                        onChange={(event) =>
-                          setOwnerProfileForm((prev) => ({ ...prev, city: event.target.value }))
-                        }
-                        className="mt-1.5 h-11 rounded-xl border-slate-200"
-                        placeholder="Noida"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">State</Label>
-                      <Input
-                        value={ownerProfileForm.state}
-                        onChange={(event) =>
-                          setOwnerProfileForm((prev) => ({ ...prev, state: event.target.value }))
-                        }
-                        className="mt-1.5 h-11 rounded-xl border-slate-200"
-                        placeholder="Uttar Pradesh"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">Country</Label>
-                      <Input
-                        value={ownerProfileForm.country}
-                        onChange={(event) =>
-                          setOwnerProfileForm((prev) => ({ ...prev, country: event.target.value }))
-                        }
-                        className="mt-1.5 h-11 rounded-xl border-slate-200"
-                        placeholder="India"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-700">Role</Label>
-                      <Input
-                        value={user?.role || 'N/A'}
-                        className="mt-1.5 h-11 rounded-xl border-slate-200 bg-slate-100/70 capitalize"
-                        readOnly
-                      />
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-sky-50/70 text-sm text-slate-700">
-                    Total Pets: <span className="font-semibold">{myPets.length}</span>
-                  </div>
-
-                  {ownerProfileSchemaWarning && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                      {ownerProfileSchemaWarning}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-3 pt-2">
-                    <Button
-                      type="submit"
-                      disabled={ownerProfileSaving}
-                      className="bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600"
-                    >
-                      {ownerProfileSaving ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Saving...
-                        </span>
-                      ) : (
-                        'Save Profile'
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={() => setActiveSection('my-pets')}
-                      className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
-                    >
-                      <PawPrint className="mr-2 h-4 w-4" /> View My Pets
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="bg-transparent"
-                      onClick={() => setActiveSection('pharmacy')}
-                    >
-                      <Pill className="mr-2 h-4 w-4" /> Open Pharmacy
-                    </Button>
-                  </div>
-                </form>
-              )}
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Name:</span> <span className="font-semibold text-slate-700">{user?.name || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-700">{user?.email || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Role:</span> <span className="font-semibold text-slate-700 capitalize">{user?.role || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Total Pets:</span> <span className="font-semibold text-slate-700">{myPets.length}</span></div>
+              </div>
+              <div className="mt-5 flex gap-3">
+                <Button onClick={() => setActiveSection('my-pets')} className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
+                  <PawPrint className="mr-2 h-4 w-4" /> View My Pets
+                </Button>
+                <Button variant="outline" className="bg-transparent" onClick={() => setActiveSection('notifications')}>
+                  <Bell className="mr-2 h-4 w-4" /> Notifications
+                </Button>
+              </div>
             </div>
           </div>
         )
@@ -2213,7 +2907,10 @@ case 'pharmacy':
                   <Button onClick={() => setShowPassport(true)} className="bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30">
                     <QrCode className="mr-2 h-4 w-4" /> Pet Passport
                   </Button>
-                  <Button className="bg-white text-teal-600 hover:bg-white/90">
+                  <Button
+                    onClick={() => setActiveSection('vet-directory')}
+                    className="bg-white text-teal-600 hover:bg-white/90"
+                  >
                     <Calendar className="mr-2 h-4 w-4" /> Book Appointment
                   </Button>
                 </div>
@@ -2242,13 +2939,11 @@ case 'pharmacy':
             <section>
               <h3 className="text-lg font-semibold text-slate-800 mb-4">Recent Activity</h3>
               <div className="space-y-3">
-                {[
-                  { title: 'Vaccination due for Max', time: '2 days left', type: 'reminder' },
-                  { title: 'Dr. Sarah responded to your query', time: '1 hour ago', type: 'message' },
-                  { title: 'New training video available', time: '3 hours ago', type: 'content' },
-                  { title: 'New training video available', time: '3 hours ago', type: 'content' },
-                ].map((activity, i) => (
-                  <div key={i} className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50">
+                {(recentActivities.length
+                  ? recentActivities
+                  : [{ title: 'No recent activity yet', time: 'Just now', type: 'content', timestamp: Date.now() }]
+                ).map((activity, i) => (
+                  <div key={`${activity.title}-${activity.timestamp}-${i}`} className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-100 to-cyan-100 flex items-center justify-center">
                       {activity.type === 'reminder' && <Bell className="w-5 h-5 text-teal-600" />}
                       {activity.type === 'message' && <MessageSquare className="w-5 h-5 text-teal-600" />}
@@ -2510,6 +3205,524 @@ case 'pharmacy':
         </Dialog>
       )}
 
+      {showVolunteerForm && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeVolunteerForm}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl bg-white border border-white/50 shadow-2xl p-6 md:p-7 max-h-[90vh] overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-800">Volunteer Registration</h3>
+                <p className="text-sm text-slate-500">
+                  {selectedNgo ? `Apply for ${selectedNgo.name}` : 'Submit your volunteer details'}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={closeVolunteerForm}>
+                <X className="w-5 h-5 text-slate-600" />
+              </Button>
+            </div>
+
+            <form onSubmit={handleVolunteerFormSubmit} className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-semibold">Full Name *</Label>
+                  <Input
+                    value={volunteerForm.fullName}
+                    onChange={(event) =>
+                      setVolunteerForm((prev) => ({ ...prev, fullName: event.target.value }))
+                    }
+                    placeholder="Your full name"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Email *</Label>
+                  <Input
+                    type="email"
+                    value={volunteerForm.email}
+                    onChange={(event) =>
+                      setVolunteerForm((prev) => ({ ...prev, email: event.target.value }))
+                    }
+                    placeholder="you@example.com"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Phone *</Label>
+                  <Input
+                    value={volunteerForm.phone}
+                    onChange={(event) =>
+                      setVolunteerForm((prev) => ({ ...prev, phone: event.target.value }))
+                    }
+                    placeholder="10-digit number"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Age</Label>
+                  <Input
+                    type="number"
+                    min={18}
+                    value={volunteerForm.age}
+                    onChange={(event) =>
+                      setVolunteerForm((prev) => ({ ...prev, age: event.target.value }))
+                    }
+                    placeholder="e.g. 24"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">City</Label>
+                  <Input
+                    value={volunteerForm.city}
+                    onChange={(event) =>
+                      setVolunteerForm((prev) => ({ ...prev, city: event.target.value }))
+                    }
+                    placeholder="Your city"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Availability</Label>
+                  <Input
+                    value={volunteerForm.availability}
+                    onChange={(event) =>
+                      setVolunteerForm((prev) => ({ ...prev, availability: event.target.value }))
+                    }
+                    placeholder="Weekends / Evenings"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">ID Proof Number *</Label>
+                  <Input
+                    value={volunteerForm.idProofNumber}
+                    onChange={(event) =>
+                      setVolunteerForm((prev) => ({ ...prev, idProofNumber: event.target.value }))
+                    }
+                    placeholder="Aadhaar / Passport / DL number"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">ID Proof Image *</Label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => setVolunteerIdProofFile(event.target.files?.[0] || null)}
+                    required
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Upload government ID proof image (max 5MB).
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold">Skills / Interests</Label>
+                <Input
+                  value={volunteerForm.skills}
+                  onChange={(event) =>
+                    setVolunteerForm((prev) => ({ ...prev, skills: event.target.value }))
+                  }
+                  placeholder="Animal care, rescue support, transport, social media"
+                />
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold">Previous Experience</Label>
+                <Textarea
+                  value={volunteerForm.experience}
+                  onChange={(event) =>
+                    setVolunteerForm((prev) => ({ ...prev, experience: event.target.value }))
+                  }
+                  placeholder="Tell us about your volunteer background"
+                  className="min-h-20"
+                />
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold">Message</Label>
+                <Textarea
+                  value={volunteerForm.message}
+                  onChange={(event) =>
+                    setVolunteerForm((prev) => ({ ...prev, message: event.target.value }))
+                  }
+                  placeholder="Why do you want to volunteer?"
+                  className="min-h-20"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/80">
+                <p className="text-xs text-slate-500 mb-2">ID Proof Preview</p>
+                <div className="relative w-28 h-20 rounded-lg overflow-hidden bg-slate-200">
+                  {volunteerIdProofPreview ? (
+                    <Image src={volunteerIdProofPreview} alt="ID proof preview" fill className="object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">
+                      No file selected
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" className="bg-transparent" onClick={closeVolunteerForm}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submittingVolunteerForm}
+                  className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
+                >
+                  {submittingVolunteerForm ? 'Submitting...' : 'Submit Application'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showNgoPetProfiles && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeNgoPetProfiles}
+        >
+          <div
+            className="w-full max-w-4xl rounded-3xl bg-white border border-white/50 shadow-2xl p-6 md:p-7 max-h-[90vh] overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-800">NGO Pet Profiles</h3>
+                <p className="text-sm text-slate-500">
+                  {selectedNgoForProfiles
+                    ? `Available pets in ${selectedNgoForProfiles.name}`
+                    : 'Choose a pet to adopt'}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={closeNgoPetProfiles}>
+                <X className="w-5 h-5 text-slate-600" />
+              </Button>
+            </div>
+
+            {selectedNgoPetProfiles.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
+                No pets listed for this NGO yet.
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {selectedNgoPetProfiles.map((pet) => (
+                  <div key={pet.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex gap-4">
+                      <div className="relative w-24 h-24 rounded-xl overflow-hidden bg-slate-100">
+                        <Image src={pet.image || '/placeholder.svg'} alt={pet.name} fill className="object-cover" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-lg font-semibold text-slate-800">{pet.name}</h4>
+                        <p className="text-sm text-slate-500">{pet.type} | {pet.breed}</p>
+                        <p className="text-sm text-slate-500">Age: {pet.age}</p>
+                        <p className="text-xs text-emerald-700 mt-1">Health: {pet.healthStatus}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-600 mt-3">{pet.description}</p>
+                    <Button
+                      className="mt-4 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
+                      onClick={() => {
+                        if (!selectedNgoForProfiles) return
+                        openAdoptionForm(selectedNgoForProfiles, pet)
+                      }}
+                    >
+                      <PawPrint className="mr-2 h-4 w-4" /> Adopt This Pet
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showAdoptionForm && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeAdoptionForm}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl bg-white border border-white/50 shadow-2xl p-6 md:p-7 max-h-[90vh] overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-800">Pet Adoption Request</h3>
+                <p className="text-sm text-slate-500">
+                  {selectedAdoptionNgo ? `Apply with ${selectedAdoptionNgo.name}` : 'Submit adoption request'}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={closeAdoptionForm}>
+                <X className="w-5 h-5 text-slate-600" />
+              </Button>
+            </div>
+
+            <form onSubmit={handleAdoptionFormSubmit} className="space-y-4">
+              {selectedAdoptionPet && (
+                <div className="rounded-2xl border border-rose-100 bg-rose-50/40 p-4">
+                  <p className="text-xs text-rose-700 font-medium mb-2">Selected Pet Profile</p>
+                  <div className="flex gap-3 items-center">
+                    <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-slate-100">
+                      <Image src={selectedAdoptionPet.image || '/placeholder.svg'} alt={selectedAdoptionPet.name} fill className="object-cover" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-slate-800">{selectedAdoptionPet.name}</p>
+                      <p className="text-sm text-slate-600">
+                        {selectedAdoptionPet.type} | {selectedAdoptionPet.breed} | {selectedAdoptionPet.age}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-semibold">Applicant Name *</Label>
+                  <Input
+                    value={adoptionForm.applicantName}
+                    onChange={(event) =>
+                      setAdoptionForm((prev) => ({ ...prev, applicantName: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Applicant Email *</Label>
+                  <Input
+                    type="email"
+                    value={adoptionForm.applicantEmail}
+                    onChange={(event) =>
+                      setAdoptionForm((prev) => ({ ...prev, applicantEmail: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Phone *</Label>
+                  <Input
+                    value={adoptionForm.applicantPhone}
+                    onChange={(event) =>
+                      setAdoptionForm((prev) => ({ ...prev, applicantPhone: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">City *</Label>
+                  <Input
+                    value={adoptionForm.city}
+                    onChange={(event) =>
+                      setAdoptionForm((prev) => ({ ...prev, city: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label className="text-sm font-semibold">Address *</Label>
+                  <Textarea
+                    value={adoptionForm.address}
+                    onChange={(event) =>
+                      setAdoptionForm((prev) => ({ ...prev, address: event.target.value }))
+                    }
+                    className="min-h-16"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Selected Pet Type</Label>
+                  <Input value={selectedAdoptionPet?.type || adoptionForm.preferredPetType} readOnly />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Verification ID Number *</Label>
+                  <Input
+                    value={adoptionForm.verificationIdNumber}
+                    onChange={(event) =>
+                      setAdoptionForm((prev) => ({ ...prev, verificationIdNumber: event.target.value }))
+                    }
+                    placeholder="Aadhaar / Passport / DL number"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label className="text-sm font-semibold">Verification ID Proof *</Label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => setAdoptionIdProofFile(event.target.files?.[0] || null)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold">Adoption Experience</Label>
+                <Textarea
+                  value={adoptionForm.experience}
+                  onChange={(event) =>
+                    setAdoptionForm((prev) => ({ ...prev, experience: event.target.value }))
+                  }
+                  placeholder="Previous pet adoption/care experience"
+                  className="min-h-20"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={adoptionForm.requestPetPassport}
+                  onChange={(event) =>
+                    setAdoptionForm((prev) => ({ ...prev, requestPetPassport: event.target.checked }))
+                  }
+                />
+                Request Pet Passport from NGO at adoption time
+              </label>
+
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/80">
+                <p className="text-xs text-slate-500 mb-2">Verification ID Preview</p>
+                <div className="relative w-28 h-20 rounded-lg overflow-hidden bg-slate-200">
+                  {adoptionIdProofPreview ? (
+                    <Image src={adoptionIdProofPreview} alt="Adoption verification proof preview" fill className="object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">
+                      No file selected
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" className="bg-transparent" onClick={closeAdoptionForm}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submittingAdoptionForm}
+                  className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
+                >
+                  {submittingAdoptionForm ? 'Submitting...' : 'Submit Adoption Request'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showHandoverForm && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeHandoverForm}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl bg-white border border-white/50 shadow-2xl p-6 md:p-7 max-h-[90vh] overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-800">Pet Handover Request</h3>
+                <p className="text-sm text-slate-500">
+                  {selectedHandoverNgo ? `Send request to ${selectedHandoverNgo.name}` : 'Submit your request'}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={closeHandoverForm}>
+                <X className="w-5 h-5 text-slate-600" />
+              </Button>
+            </div>
+
+            <form onSubmit={handleHandoverFormSubmit} className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-semibold">Owner Name *</Label>
+                  <Input
+                    value={handoverForm.ownerName}
+                    onChange={(event) =>
+                      setHandoverForm((prev) => ({ ...prev, ownerName: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Owner Email *</Label>
+                  <Input
+                    type="email"
+                    value={handoverForm.ownerEmail}
+                    onChange={(event) =>
+                      setHandoverForm((prev) => ({ ...prev, ownerEmail: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Owner Phone *</Label>
+                  <Input
+                    value={handoverForm.ownerPhone}
+                    onChange={(event) =>
+                      setHandoverForm((prev) => ({ ...prev, ownerPhone: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Which Pet Do You Want To Handover? *</Label>
+                  <select
+                    value={handoverForm.handoverPetId}
+                    onChange={(event) =>
+                      setHandoverForm((prev) => ({ ...prev, handoverPetId: event.target.value }))
+                    }
+                    className="mt-2 w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    required
+                  >
+                    <option value="">Select pet</option>
+                    {myPets.map((pet) => (
+                      <option key={pet.id} value={pet.id}>
+                        {pet.name} ({pet.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {handoverForm.handoverPetId && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                  <p className="text-xs text-slate-500 mb-2">Selected Pet Passport</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="bg-transparent"
+                    onClick={() => {
+                      setSelectedPetId(handoverForm.handoverPetId)
+                      setShowPassport(true)
+                    }}
+                  >
+                    View Pet Passport
+                  </Button>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" className="bg-transparent" onClick={closeHandoverForm}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submittingHandoverForm}
+                  className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
+                >
+                  {submittingHandoverForm ? 'Submitting...' : 'Submit Handover Request'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showAddPetPopup && (
         <div
           className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
@@ -2691,3 +3904,18 @@ case 'pharmacy':
     </div>
   )
 }
+
+export default function UserDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-cyan-50/50 flex items-center justify-center p-4">
+          <p className="text-sm text-slate-600">Loading dashboard...</p>
+        </div>
+      }
+    >
+      <UserDashboardContent />
+    </Suspense>
+  )
+}
+

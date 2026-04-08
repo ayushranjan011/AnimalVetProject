@@ -59,6 +59,24 @@ const isPermissionError = (error: any) => {
   )
 }
 
+const formatSupabaseError = (error: any): string => {
+  if (!error) return 'Unknown error'
+  
+  const parts: string[] = []
+  
+  if (error.message) parts.push(`Message: ${error.message}`)
+  if (error.code) parts.push(`Code: ${error.code}`)
+  if (error.details) parts.push(`Details: ${error.details}`)
+  if (error.hint) parts.push(`Hint: ${error.hint}`)
+  if (error.status) parts.push(`Status: ${error.status}`)
+  
+  if (parts.length === 0) {
+    parts.push(`Error object: ${JSON.stringify(error)}`)
+  }
+  
+  return parts.join(' | ')
+}
+
 const normalizeUserRole = (role: unknown): UserRole => {
   if (role === 'veterinarian' || role === 'ngo' || role === 'pet_nanny') {
     return role
@@ -84,6 +102,11 @@ const normalizeDisplayName = (name: unknown, email?: string) => {
 const normalizePhone = (phone: unknown) => {
   const normalizedPhone = typeof phone === 'string' ? phone.trim() : ''
   return normalizedPhone || undefined
+}
+
+const normalizeLocationText = (value: unknown) => {
+  const normalizedValue = typeof value === 'string' ? value.trim() : ''
+  return normalizedValue || undefined
 }
 
 interface User {
@@ -114,6 +137,9 @@ export interface OwnerSignupProfile {
 
 interface SignupOptions {
   phone?: string
+  city?: string
+  state?: string
+  country?: string
   vetProfile?: VetSignupProfile
   ownerProfile?: OwnerSignupProfile
 }
@@ -129,6 +155,9 @@ type ProfileSeed = {
   name: string
   role: UserRole
   phone?: string
+  city?: string
+  state?: string
+  country?: string
   vetProfile?: VetSignupProfile
   ownerProfile?: OwnerSignupProfile
 }
@@ -198,6 +227,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (seed.phone) {
       payload.phone = seed.phone
+    }
+
+    if (seed.city) {
+      payload.city = seed.city
+    }
+
+    if (seed.state) {
+      payload.state = seed.state
+    }
+
+    if (seed.country) {
+      payload.country = seed.country
     }
 
     if (seed.role === 'veterinarian') {
@@ -515,7 +556,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .maybeSingle()
 
           if (profileError) {
-            console.error('Session profile fetch error:', profileError)
+            console.error('Session profile fetch error:', formatSupabaseError(profileError))
           } else if (!profile) {
             await syncAppRecords(
               {
@@ -524,6 +565,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 name: fallbackName,
                 role: fallbackRole,
                 phone: normalizePhone(metadata.phone),
+                city: normalizeLocationText(metadata.city),
+                state: normalizeLocationText(metadata.state),
+                country: normalizeLocationText(metadata.country),
                 vetProfile: fallbackVetProfile,
                 ownerProfile: fallbackOwnerProfile,
               },
@@ -537,7 +581,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               .maybeSingle()
 
             if (profileReload.error) {
-              console.error('Session profile reload error:', profileReload.error)
+              console.error('Session profile reload error:', formatSupabaseError(profileReload.error))
             } else {
               profile = profileReload.data
             }
@@ -582,6 +626,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const normalizedEmail = email.trim().toLowerCase()
       const normalizedName = normalizeDisplayName(name, normalizedEmail)
       const normalizedPhone = normalizePhone(options?.phone)
+      const normalizedCity = normalizeLocationText(options?.city)
+      const normalizedState = normalizeLocationText(options?.state)
+      const normalizedCountry = normalizeLocationText(options?.country)
       const normalizedVetProfile =
         role === 'veterinarian' ? parseVetProfileFromUnknown(options?.vetProfile) : undefined
       const normalizedOwnerProfile =
@@ -591,6 +638,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: normalizedName,
         role,
         phone: normalizedPhone || null,
+        city: normalizedCity || null,
+        state: normalizedState || null,
+        country: normalizedCountry || null,
       }
 
       if (role === 'veterinarian') {
@@ -621,6 +671,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: normalizedName,
           role,
           phone: normalizedPhone,
+          city: normalizedCity,
+          state: normalizedState,
+          country: normalizedCountry,
           vetProfile: normalizedVetProfile,
           ownerProfile: normalizedOwnerProfile,
         }
@@ -696,7 +749,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .maybeSingle()
 
         if (profileError) {
-          console.error('Profile fetch error:', profileError)
+          console.error('Profile fetch error:', formatSupabaseError(profileError))
           throw new Error('Failed to fetch user profile')
         }
 
@@ -708,6 +761,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               name: fallbackName,
               role: fallbackRole,
               phone: normalizePhone(metadata.phone),
+                city: normalizeLocationText(metadata.city),
+                state: normalizeLocationText(metadata.state),
+                country: normalizeLocationText(metadata.country),
               vetProfile: fallbackVetProfile,
               ownerProfile: fallbackOwnerProfile,
             },
@@ -721,7 +777,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .maybeSingle()
 
           if (profileReload.error) {
-            console.error('Profile reload error:', profileReload.error)
+            console.error('Profile reload error:', formatSupabaseError(profileReload.error))
             throw new Error('Failed to fetch user profile')
           }
 

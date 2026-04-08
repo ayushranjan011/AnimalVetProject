@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/contexts/auth-context'
-import { User, Stethoscope, Heart, ArrowRight, Shield, Clock, Globe, PawPrint } from 'lucide-react'
+import { User, Stethoscope, Heart, ArrowRight, Shield, Clock, Globe, PawPrint, Eye, EyeOff } from 'lucide-react'
 
 type UserRole = 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | null
 
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
@@ -300,15 +301,25 @@ export default function LoginPage() {
                     </div>
                     <div>
                       <Label htmlFor="password" className="text-sm font-medium text-slate-700">Password</Label>
-                      <Input
-                        id="password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        placeholder="Enter your password"
-                        className="mt-2 h-12 rounded-xl border-slate-200 focus:border-teal-400 focus:ring-teal-400"
-                      />
+                      <div className="relative mt-2">
+                        <Input
+                          id="password"
+                          type={showPassword ? 'text' : 'password'}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          required
+                          placeholder="Enter your password"
+                          className="h-12 rounded-xl border-slate-200 pr-11 focus:border-teal-400 focus:ring-teal-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                        </button>
+                      </div>
                     </div>
                     {error && (
                       <p className="text-sm font-medium text-rose-600">{error}</p>

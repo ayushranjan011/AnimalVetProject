@@ -1,9 +1,12 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { QrCode, Shield, Syringe, Stethoscope, Calendar, User, PawPrint } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { QRCodeSVG } from 'qrcode.react'
+import { QrCode, Shield, Syringe, Stethoscope, Calendar, User, PawPrint, ExternalLink, Copy } from 'lucide-react'
 
 interface PetPassportProps {
   petId: string
@@ -34,6 +37,77 @@ export function PetPassport({
   onOpenChange,
   petImage,
 }: PetPassportProps) {
+  const [shareUrl, setShareUrl] = useState('')
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const sharePayload = useMemo(
+    () => ({
+      petId,
+      petName,
+      petType,
+      breed,
+      age,
+      owner,
+      medicalHistory,
+      vaccinations,
+      treatments,
+      petImage: petImage || '',
+      generatedAt: new Date().toISOString(),
+    }),
+    [petId, petName, petType, breed, age, owner, medicalHistory, vaccinations, treatments, petImage]
+  )
+
+  useEffect(() => {
+    if (!open) return
+
+    let isMounted = true
+    const generateShareUrl = async () => {
+      setIsGeneratingLink(true)
+      try {
+        const response = await fetch('/api/pet-passport-share', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload: sharePayload }),
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to generate secure share link')
+        }
+
+        const result = (await response.json()) as { url?: string }
+        if (isMounted) {
+          setShareUrl(result.url || '')
+        }
+      } catch {
+        if (isMounted) {
+          setShareUrl('')
+        }
+      } finally {
+        if (isMounted) {
+          setIsGeneratingLink(false)
+        }
+      }
+    }
+
+    generateShareUrl()
+
+    return () => {
+      isMounted = false
+    }
+  }, [open, sharePayload])
+
+  const handleCopyLink = async () => {
+    if (!shareUrl || typeof navigator === 'undefined' || !navigator.clipboard) return
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch {
+      setCopied(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-gradient-to-br from-white via-teal-50/30 to-cyan-50/40 border-0 shadow-2xl">
@@ -65,12 +139,41 @@ export function PetPassport({
               </div>
             )}
             <div className="text-center">
-              <div className="w-28 h-28 bg-white rounded-2xl flex items-center justify-center shadow-lg border-2 border-teal-100 mb-3">
-                <QrCode className="h-20 w-20 text-teal-600" />
+              <div className="w-40 h-40 bg-white rounded-2xl flex items-center justify-center shadow-lg border-2 border-teal-100 mb-3 p-2">
+                {shareUrl ? (
+                  <QRCodeSVG value={shareUrl} size={136} bgColor="#ffffff" fgColor="#0f766e" level="M" includeMargin />
+                ) : (
+                  <QrCode className="h-20 w-20 text-teal-600" />
+                )}
               </div>
               <p className="text-xs font-mono text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
                 {petId}
               </p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-teal-200 text-teal-700 hover:bg-teal-50"
+                  onClick={handleCopyLink}
+                  disabled={!shareUrl || isGeneratingLink}
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  {copied ? 'Copied' : 'Copy QR Link'}
+                </Button>
+                <Button
+                  type="button"
+                  className="bg-teal-600 hover:bg-teal-700 text-white"
+                  onClick={() => {
+                    if (shareUrl && typeof window !== 'undefined') {
+                      window.open(shareUrl, '_blank', 'noopener,noreferrer')
+                    }
+                  }}
+                  disabled={!shareUrl || isGeneratingLink}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Open Shared Passport
+                </Button>
+              </div>
             </div>
           </div>
 

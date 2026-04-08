@@ -23,6 +23,24 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+const formatSupabaseError = (error: any): string => {
+  if (!error) return 'Unknown error'
+  
+  const parts: string[] = []
+  
+  if (error.message) parts.push(`Message: ${error.message}`)
+  if (error.code) parts.push(`Code: ${error.code}`)
+  if (error.details) parts.push(`Details: ${error.details}`)
+  if (error.hint) parts.push(`Hint: ${error.hint}`)
+  if (error.status) parts.push(`Status: ${error.status}`)
+  
+  if (parts.length === 0) {
+    parts.push(`Error object: ${JSON.stringify(error)}`)
+  }
+  
+  return parts.join(' | ')
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -114,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .single()
 
         if (profileError) {
-          console.error('Profile fetch error:', profileError)
+          console.error('Profile fetch error:', formatSupabaseError(profileError))
           throw new Error('Failed to fetch user profile')
         }
 

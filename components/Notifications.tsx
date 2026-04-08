@@ -188,20 +188,36 @@ export default function Notifications() {
   const unreadCount = notifications.filter(n => !n.isRead).length
   const sosCount = notifications.filter(n => n.type === 'sos' && n.isUserTriggered && !n.isRead).length
 
-  const handleMarkAsRead = (id: string) => {
-    void supabase.from('notifications').update({ is_read: true }).eq('id', id).catch((error) => {
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', id)
+      if (error) {
+        console.error('Failed to mark notification as read:', error)
+      }
+    } catch (error) {
       console.error('Failed to mark notification as read:', error)
-    })
+    }
+
     setNotifications((prev) =>
       prev.map((notif) => (notif.id === id ? { ...notif, isRead: true } : notif))
     )
   }
 
-  const handleMarkAllAsRead = () => {
+  const handleMarkAllAsRead = async () => {
     if (user?.id) {
-      supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id).eq('is_read', false).catch((error) => {
+      try {
+        const { error } = await supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('user_id', user.id)
+          .eq('is_read', false)
+
+        if (error) {
+          console.error('Failed to mark all notifications as read:', error)
+        }
+      } catch (error) {
         console.error('Failed to mark all notifications as read:', error)
-      })
+      }
     }
     setNotifications(notifications.map(notif => ({ ...notif, isRead: true })))
   }

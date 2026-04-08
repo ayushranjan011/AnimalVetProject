@@ -232,48 +232,6 @@ type IncomingVideoCall = {
   roomID: string
 }
 
-const initialOwnerProfileForm: OwnerProfileForm = {
-  name: '',
-  email: '',
-  phone: '',
-  location: '',
-  city: '',
-  state: '',
-  country: '',
-}
-
-const initialVolunteerApplicationForm: VolunteerApplicationForm = {
-  fullName: '',
-  email: '',
-  phone: '',
-  age: '',
-  city: '',
-  availability: '',
-  skills: '',
-  experience: '',
-  idProofNumber: '',
-  message: '',
-}
-
-const initialPetHandoverForm: PetHandoverForm = {
-  ownerName: '',
-  ownerEmail: '',
-  ownerPhone: '',
-  handoverPetId: '',
-}
-
-const initialPetAdoptionForm: PetAdoptionForm = {
-  applicantName: '',
-  applicantEmail: '',
-  applicantPhone: '',
-  city: '',
-  address: '',
-  preferredPetType: 'Dog',
-  experience: '',
-  verificationIdNumber: '',
-  requestPetPassport: true,
-}
-
 const mapToUsersRole = (
   role: 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | undefined
 ): 'pet_owner' | 'veterinarian' | 'ngo' | 'pet_nanny' => {
@@ -399,6 +357,10 @@ function UserDashboardContent() {
   const [editingPetId, setEditingPetId] = useState<string | null>(null)
   const [petImageFile, setPetImageFile] = useState<File | null>(null)
   const [petImagePreview, setPetImagePreview] = useState('')
+  const [volunteerIdProofFile, setVolunteerIdProofFile] = useState<File | null>(null)
+  const [volunteerIdProofPreview, setVolunteerIdProofPreview] = useState('')
+  const [adoptionIdProofFile, setAdoptionIdProofFile] = useState<File | null>(null)
+  const [adoptionIdProofPreview, setAdoptionIdProofPreview] = useState('')
   const [isUploadingPetImage, setIsUploadingPetImage] = useState(false)
   const [myPets, setMyPets] = useState<PetProfile[]>([])
   const [selectedPetId, setSelectedPetId] = useState('')
@@ -408,6 +370,50 @@ function UserDashboardContent() {
   const [vetsLoading, setVetsLoading] = useState(false)
   const [vetSearchTerm, setVetSearchTerm] = useState('')
   const [vetSchemaWarning, setVetSchemaWarning] = useState('')
+  const [ngos, setNgos] = useState<NgoDirectoryItem[]>([])
+  const [ngosLoading, setNgosLoading] = useState(false)
+  const [ngoSchemaWarning, setNgoSchemaWarning] = useState('')
+  const [selectedNgo, setSelectedNgo] = useState<NgoDirectoryItem | null>(null)
+  const [showVolunteerForm, setShowVolunteerForm] = useState(false)
+  const [submittingVolunteerForm, setSubmittingVolunteerForm] = useState(false)
+  const [volunteerForm, setVolunteerForm] = useState<VolunteerApplicationForm>({
+    fullName: '',
+    email: '',
+    phone: '',
+    age: '',
+    city: '',
+    availability: '',
+    skills: '',
+    experience: '',
+    idProofNumber: '',
+    message: '',
+  })
+  const [selectedHandoverNgo, setSelectedHandoverNgo] = useState<NgoDirectoryItem | null>(null)
+  const [showHandoverForm, setShowHandoverForm] = useState(false)
+  const [submittingHandoverForm, setSubmittingHandoverForm] = useState(false)
+  const [handoverForm, setHandoverForm] = useState<PetHandoverForm>({
+    ownerName: '',
+    ownerEmail: '',
+    ownerPhone: '',
+    handoverPetId: '',
+  })
+  const [selectedNgoForProfiles, setSelectedNgoForProfiles] = useState<NgoDirectoryItem | null>(null)
+  const [showNgoPetProfiles, setShowNgoPetProfiles] = useState(false)
+  const [selectedAdoptionNgo, setSelectedAdoptionNgo] = useState<NgoDirectoryItem | null>(null)
+  const [selectedAdoptionPet, setSelectedAdoptionPet] = useState<NgoPetProfile | null>(null)
+  const [showAdoptionForm, setShowAdoptionForm] = useState(false)
+  const [submittingAdoptionForm, setSubmittingAdoptionForm] = useState(false)
+  const [adoptionForm, setAdoptionForm] = useState<PetAdoptionForm>({
+    applicantName: '',
+    applicantEmail: '',
+    applicantPhone: '',
+    city: '',
+    address: '',
+    preferredPetType: 'Dog',
+    experience: '',
+    verificationIdNumber: '',
+    requestPetPassport: true,
+  })
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [incomingVideoCall, setIncomingVideoCall] = useState<IncomingVideoCall | null>(null)
   const [incomingVideoCallOpen, setIncomingVideoCallOpen] = useState(false)
@@ -416,9 +422,6 @@ function UserDashboardContent() {
   const [dietPlansLoading, setDietPlansLoading] = useState(false)
   const [dietPlansError, setDietPlansError] = useState('')
   const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([])
-  const [ngos, setNgos] = useState<NgoDirectoryItem[]>([])
-  const [ngosLoading, setNgosLoading] = useState(false)
-  const [ngoSchemaWarning, setNgoSchemaWarning] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileForm, setProfileForm] = useState<UserProfileForm>({
@@ -2073,20 +2076,18 @@ phImage: "/images/img/smartchemist.webp"
   }
 
   const profileLocationSummary = [
-    ownerProfileForm.location,
-    ownerProfileForm.city,
-    ownerProfileForm.state,
-    ownerProfileForm.country,
+    profileForm.city,
+    profileForm.state,
+    profileForm.country,
   ]
     .map((value) => normalizeText(value))
     .filter(Boolean)
     .join(', ')
 
   const pharmacySearchTerms = [
-    ownerProfileForm.location,
-    ownerProfileForm.city,
-    ownerProfileForm.state,
-    ownerProfileForm.country,
+    profileForm.city,
+    profileForm.state,
+    profileForm.country,
   ]
     .map((value) => normalizeText(value).toLowerCase())
     .filter(Boolean)

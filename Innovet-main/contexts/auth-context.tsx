@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { supabase } from '@/lib/supabase'
+import { hasSupabaseConfig, supabase } from '@/lib/supabase'
 
 type UserRole = 'user' | 'veterinarian' | 'ngo'
 
@@ -49,6 +49,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check if user is already logged in on mount
   useEffect(() => {
     const checkSession = async () => {
+      if (!hasSupabaseConfig) {
+        console.warn('Supabase is not configured. Skipping session check.')
+        setLoading(false)
+        return
+      }
+
       try {
         const { data, error } = await supabase.auth.getSession()
         if (data?.session?.user) {
@@ -80,6 +86,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = async (email: string, password: string, name: string, role: UserRole) => {
     setError(null)
     try {
+      if (!hasSupabaseConfig) {
+        throw new Error('Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.')
+      }
+
       // Sign up with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
@@ -117,6 +127,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     setError(null)
     try {
+      if (!hasSupabaseConfig) {
+        throw new Error('Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.')
+      }
+
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -166,6 +180,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     setError(null)
     try {
+      if (!hasSupabaseConfig) {
+        setUser(null)
+        return
+      }
+
       const { error } = await supabase.auth.signOut()
       if (error) throw error
       setUser(null)

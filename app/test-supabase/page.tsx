@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { hasSupabaseConfig, supabase } from '@/lib/supabase'
 
 export default function TestSupabasePage() {
   const [status, setStatus] = useState<'loading' | 'connected' | 'error'>('loading')
@@ -14,10 +14,7 @@ export default function TestSupabasePage() {
         console.log('Testing Supabase connection...')
         
         // Test 1: Check environment variables
-        const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-        
-        if (!url || !key) {
+        if (!hasSupabaseConfig) {
           setStatus('error')
           setMessage('❌ Environment variables missing!')
           return

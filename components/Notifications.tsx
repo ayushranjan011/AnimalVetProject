@@ -209,11 +209,11 @@ export default function Notifications() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="space-y-2">
+      {/* <div className="space-y-2">
         <h1 className="text-4xl font-bold text-gray-900">Notifications</h1>
         <p className="text-gray-600">Stay updated with your pet's health and activity</p>
         <div className="h-1 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full w-20 mt-4"></div>
-      </div>
+      </div> */}
 
       {/* Filters and Mark All as Read */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

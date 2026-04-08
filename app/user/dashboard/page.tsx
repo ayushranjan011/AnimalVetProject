@@ -1234,7 +1234,7 @@ function UserDashboardContent() {
         .select('id, title, description, type, created_at')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(5)
+        .limit(10)
 
       if (!notificationsQuery.error) {
         for (const row of notificationsQuery.data || []) {
@@ -1255,24 +1255,26 @@ function UserDashboardContent() {
 
       let appointmentsQuery = await supabase
         .from('appointments')
-        .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date')
+        .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date, mode, type')
         .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
         .order('created_at', { ascending: false })
-        .limit(5)
+        .limit(10)
 
       if (appointmentsQuery.error && isMissingColumnError(appointmentsQuery.error, 'created_at')) {
         appointmentsQuery = await supabase
           .from('appointments')
-          .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date')
+          .select('id, pet_name, status, created_at, date, appointment_date, scheduled_date, mode, type')
           .or(`owner_id.eq.${user.id},pet_owner_id.eq.${user.id}`)
           .order('date', { ascending: false })
-          .limit(5)
+          .limit(10)
       }
 
       if (!appointmentsQuery.error) {
         for (const row of appointmentsQuery.data || []) {
           const petName = normalizeText((row as any)?.pet_name) || 'your pet'
           const status = normalizeText((row as any)?.status) || 'updated'
+          const mode = normalizeText((row as any)?.mode) || ''
+          const type = normalizeText((row as any)?.type) || ''
           const timestampString =
             normalizeText((row as any)?.created_at) ||
             normalizeText((row as any)?.date) ||
@@ -1280,19 +1282,43 @@ function UserDashboardContent() {
             normalizeText((row as any)?.scheduled_date) ||
             new Date().toISOString()
 
-          activities.push({
-            title: `Appointment ${status.toLowerCase()} for ${petName}`,
-            time: formatRelativeTime(timestampString),
-            type: 'reminder',
-            timestamp: new Date(timestampString).getTime(),
-          })
+          // Check if it's a video consultation
+          if (mode.toLowerCase().includes('video') || mode.toLowerCase().includes('online') || type.toLowerCase().includes('consultation')) {
+            activities.push({
+              title: `Video consultation ${status.toLowerCase()} for ${petName}`,
+              time: formatRelativeTime(timestampString),
+              type: 'message', // Use message icon for consultations
+              timestamp: new Date(timestampString).getTime(),
+            })
+          } else {
+            activities.push({
+              title: `Appointment ${status.toLowerCase()} for ${petName}`,
+              time: formatRelativeTime(timestampString),
+              type: 'reminder',
+              timestamp: new Date(timestampString).getTime(),
+            })
+          }
         }
+      }
+
+      // Add mock training video views (since no tracking table exists yet)
+      const mockTrainingViews = [
+        { title: 'Watched "Dog First Aid Training"', time: '2 hours ago', type: 'content' as const },
+        { title: 'Completed "Cat Care Basics"', time: '1 day ago', type: 'content' as const },
+      ]
+      for (const view of mockTrainingViews) {
+        activities.push({
+          title: view.title,
+          time: view.time,
+          type: view.type,
+          timestamp: Date.now() - Math.random() * 86400000 * 2, // Random time in last 2 days
+        })
       }
 
       const sorted = activities
         .filter((item) => Number.isFinite(item.timestamp))
         .sort((a, b) => b.timestamp - a.timestamp)
-        .slice(0, 4)
+        .slice(0, 6)
 
       setRecentActivities(sorted)
     }
@@ -3029,7 +3055,19 @@ case 'pharmacy':
                   ? recentActivities
                   : [{ title: 'No recent activity yet', time: 'Just now', type: 'content', timestamp: Date.now() }]
                 ).map((activity, i) => (
-                  <div key={`${activity.title}-${activity.timestamp}-${i}`} className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50">
+                  <div
+                    key={`${activity.title}-${activity.timestamp}-${i}`}
+                    onClick={() => {
+                      if (activity.type === 'reminder') {
+                        router.push('/user/appointments')
+                      } else if (activity.type === 'message') {
+                        router.push('/user/appointments') // Could redirect to video-call if we have roomID
+                      } else if (activity.type === 'content') {
+                        setActiveSection('training')
+                      }
+                    }}
+                    className="flex items-center gap-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50 cursor-pointer hover:bg-white/80 transition-colors"
+                  >
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-100 to-cyan-100 flex items-center justify-center">
                       {activity.type === 'reminder' && <Bell className="w-5 h-5 text-teal-600" />}
                       {activity.type === 'message' && <MessageSquare className="w-5 h-5 text-teal-600" />}

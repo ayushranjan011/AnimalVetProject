@@ -248,11 +248,11 @@ export default function Appointments() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
+      {/* <div className="space-y-2">
         <h1 className="text-4xl font-bold text-gray-900">My Appointments</h1>
         <p className="text-gray-600">Manage your pet consultations and sessions</p>
         <div className="h-1 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full w-24 mt-4"></div>
-      </div>
+      </div> */}
 
       <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 space-y-4">
         <div className="flex flex-wrap gap-2">

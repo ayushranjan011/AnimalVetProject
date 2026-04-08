@@ -199,11 +199,11 @@ export default function PetNanny() {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-2">
+      {/* <div className="space-y-2">
         <h1 className="text-4xl font-bold text-gray-900">Nearby Pet Nannies & Care Centers</h1>
         <p className="text-gray-600 text-lg">Find trusted pet nannies and pet care centers for your pet when you are away</p>
         <div className="h-1 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full w-24 mt-4"></div>
-      </div>
+      </div> */}
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
         <div className="flex items-center gap-2 mb-4">

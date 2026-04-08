@@ -229,12 +229,14 @@ export default function MedicalRecords() {
       {/* Header */}
       <div>
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-lg bg-teal-500 flex items-center justify-center">
-            <span className="text-white text-lg">📋</span>
+          <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center shadow-sm shadow-orange-200/60">
+            <span className="text-white text-2xl">📋</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Medical Records</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Medical Records</h1>
+            <p className="text-sm text-gray-600">View and manage your pet's medical documents and records</p>
+          </div>
         </div>
-        <p className="text-gray-600">View and manage your pet's medical documents and records</p>
       </div>
 
       {/* Search and Filter Bar */}

@@ -212,22 +212,6 @@ type IncomingVideoCall = {
   roomID: string
 }
 
-type UserProfileForm = {
-  name: string
-  email: string
-  phone: string
-  city: string
-  state: string
-  country: string
-}
-
-type RecentActivityItem = {
-  title: string
-  time: string
-  type: 'reminder' | 'message' | 'content'
-  timestamp: number
-}
-
 const mapToUsersRole = (
   role: 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | undefined
 ): 'pet_owner' | 'veterinarian' | 'ngo' | 'pet_nanny' => {
@@ -359,54 +343,6 @@ function UserDashboardContent() {
   const [vetsLoading, setVetsLoading] = useState(false)
   const [vetSearchTerm, setVetSearchTerm] = useState('')
   const [vetSchemaWarning, setVetSchemaWarning] = useState('')
-  const [ngos, setNgos] = useState<NgoDirectoryItem[]>([])
-  const [ngosLoading, setNgosLoading] = useState(false)
-  const [ngoSchemaWarning, setNgoSchemaWarning] = useState('')
-  const [showVolunteerForm, setShowVolunteerForm] = useState(false)
-  const [selectedNgo, setSelectedNgo] = useState<NgoDirectoryItem | null>(null)
-  const [volunteerIdProofFile, setVolunteerIdProofFile] = useState<File | null>(null)
-  const [volunteerIdProofPreview, setVolunteerIdProofPreview] = useState('')
-  const [submittingVolunteerForm, setSubmittingVolunteerForm] = useState(false)
-  const [volunteerForm, setVolunteerForm] = useState<VolunteerApplicationForm>({
-    fullName: '',
-    email: '',
-    phone: '',
-    age: '',
-    city: '',
-    availability: '',
-    skills: '',
-    experience: '',
-    idProofNumber: '',
-    message: '',
-  })
-  const [showHandoverForm, setShowHandoverForm] = useState(false)
-  const [selectedHandoverNgo, setSelectedHandoverNgo] = useState<NgoDirectoryItem | null>(null)
-  const [submittingHandoverForm, setSubmittingHandoverForm] = useState(false)
-  const [handoverForm, setHandoverForm] = useState<PetHandoverForm>({
-    ownerName: '',
-    ownerEmail: '',
-    ownerPhone: '',
-    handoverPetId: '',
-  })
-  const [showNgoPetProfiles, setShowNgoPetProfiles] = useState(false)
-  const [selectedNgoForProfiles, setSelectedNgoForProfiles] = useState<NgoDirectoryItem | null>(null)
-  const [showAdoptionForm, setShowAdoptionForm] = useState(false)
-  const [selectedAdoptionNgo, setSelectedAdoptionNgo] = useState<NgoDirectoryItem | null>(null)
-  const [selectedAdoptionPet, setSelectedAdoptionPet] = useState<NgoPetProfile | null>(null)
-  const [submittingAdoptionForm, setSubmittingAdoptionForm] = useState(false)
-  const [adoptionIdProofFile, setAdoptionIdProofFile] = useState<File | null>(null)
-  const [adoptionIdProofPreview, setAdoptionIdProofPreview] = useState('')
-  const [adoptionForm, setAdoptionForm] = useState<PetAdoptionForm>({
-    applicantName: '',
-    applicantEmail: '',
-    applicantPhone: '',
-    city: '',
-    address: '',
-    preferredPetType: 'Dog',
-    experience: '',
-    verificationIdNumber: '',
-    requestPetPassport: true,
-  })
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [incomingVideoCall, setIncomingVideoCall] = useState<IncomingVideoCall | null>(null)
   const [incomingVideoCallOpen, setIncomingVideoCallOpen] = useState(false)
@@ -766,6 +702,129 @@ function UserDashboardContent() {
 
     resolveOwnerId()
   }, [user?.id, user?.email, user?.name, user?.role])
+
+  useEffect(() => {
+    const loadOwnerProfile = async () => {
+      if (!user?.id) {
+        setOwnerProfileForm(initialOwnerProfileForm)
+        setOwnerProfileSchemaWarning('')
+        return
+      }
+
+      setOwnerProfileLoading(true)
+      setOwnerProfileSchemaWarning('')
+
+      const primaryQuery = await supabase
+        .from('profiles')
+        .select('name, email, phone, location, city, state, country')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      let data: any = primaryQuery.data
+      let error: any = primaryQuery.error
+
+      if (error && isMissingColumnError(error)) {
+        const fallbackQuery = await supabase
+          .from('profiles')
+          .select('name, email, phone')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        data = fallbackQuery.data
+        error = fallbackQuery.error
+        setOwnerProfileSchemaWarning(
+          'Profile location columns are missing in database. Run owner_profile_location_migration.sql in Supabase SQL Editor.'
+        )
+      }
+
+      setOwnerProfileLoading(false)
+
+      if (error) {
+        console.error('Failed to load pet owner profile:', error)
+        setOwnerProfileForm({
+          ...initialOwnerProfileForm,
+          name: user.name || '',
+          email: user.email || '',
+        })
+        return
+      }
+
+      setOwnerProfileForm({
+        name: normalizeText(data?.name) || user.name || '',
+        email: normalizeText(data?.email) || user.email || '',
+        phone: normalizeText(data?.phone),
+        location: normalizeText(data?.location),
+        city: normalizeText(data?.city),
+        state: normalizeText(data?.state),
+        country: normalizeText(data?.country),
+      })
+    }
+
+    void loadOwnerProfile()
+  }, [user?.id, user?.name, user?.email])
+
+  const handleOwnerProfileSave = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!user?.id) {
+      return
+    }
+
+    const normalizedName = ownerProfileForm.name.trim()
+    const normalizedPhone = ownerProfileForm.phone.trim()
+
+    if (!normalizedName) {
+      alert('Name is required.')
+      return
+    }
+
+    if (normalizedPhone && normalizedPhone.length !== 10) {
+      alert('Phone number must be exactly 10 digits')
+      return
+    }
+
+    setOwnerProfileSaving(true)
+
+    const profilePayload = {
+      name: normalizedName,
+      phone: normalizedPhone || null,
+      location: ownerProfileForm.location.trim() || null,
+      city: ownerProfileForm.city.trim() || null,
+      state: ownerProfileForm.state.trim() || null,
+      country: ownerProfileForm.country.trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+
+    let updateResult = await supabase.from('profiles').update(profilePayload).eq('id', user.id)
+
+    if (updateResult.error && isMissingColumnError(updateResult.error)) {
+      const fallbackResult = await supabase
+        .from('profiles')
+        .update({
+          name: normalizedName,
+          phone: normalizedPhone || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+
+      updateResult = fallbackResult
+      if (!fallbackResult.error) {
+        setOwnerProfileSchemaWarning(
+          'Profile updated without location fields because location columns are missing. Run owner_profile_location_migration.sql in Supabase SQL Editor.'
+        )
+      }
+    }
+
+    setOwnerProfileSaving(false)
+
+    if (updateResult.error) {
+      console.error('Failed to update owner profile:', updateResult.error)
+      alert(`Could not update profile: ${updateResult.error.message || 'Unknown error'}`)
+      return
+    }
+
+    alert('Profile updated successfully.')
+  }
 
   useEffect(() => {
     const fetchVets = async () => {
@@ -1918,6 +1977,33 @@ phImage: "/images/img/smartchemist.webp"
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
+  const profileLocationSummary = [
+    ownerProfileForm.location,
+    ownerProfileForm.city,
+    ownerProfileForm.state,
+    ownerProfileForm.country,
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(', ')
+
+  const pharmacySearchTerms = [
+    ownerProfileForm.location,
+    ownerProfileForm.city,
+    ownerProfileForm.state,
+    ownerProfileForm.country,
+  ]
+    .map((value) => normalizeText(value).toLowerCase())
+    .filter(Boolean)
+
+  const filteredPharmacies =
+    pharmacySearchTerms.length === 0
+      ? pharmacies
+      : pharmacies.filter((shop) => {
+          const haystack = `${shop.name} ${shop.address}`.toLowerCase()
+          return pharmacySearchTerms.some((term) => haystack.includes(term))
+        })
+
   const pharmacyProducts = [
     { name: 'Heartgard Plus', category: 'Medicine', price: '₹45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
     { name: 'Premium Dog Food', category: 'Food', price: '₹59.99', image: '/images/product-food.jpg', description: 'High-protein adult formula' },
@@ -2241,26 +2327,16 @@ case 'pharmacy':
 
             <Tabs defaultValue="all" className="w-full">
               <main className="max-w-7xl mx-auto px-4 py-12">
-        <div className="flex justify-between items-center mb-8 gap-3">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
-            <p className="text-sm text-slate-500">
-              {userLocationQuery
-                ? `Linked with your profile location: ${userLocationQuery}`
-                : 'Add city/state/country in My Profile for better nearest results.'}
-            </p>
-          </div>
-          <button
-            onClick={openNearbyPharmacySearch}
-            className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50"
-          >
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
+          <button className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50">
             Use My Location
           </button>
         </div>
 
         {/* Div Blocks Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {pharmaciesSorted.map((shop) => (
+          {pharmacies.map((shop) => (
             <div key={shop.id} className="group bg-white rounded-3xl p-2 shadow-sm border border-slate-200 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <div className="bg-slate-100 rounded-2xl h-40 mb-4 overflow-hidden relative">
                 {/* Image Placeholder */}
@@ -2324,6 +2400,12 @@ case 'pharmacy':
             </div>
           ))}
         </div>
+
+        {filteredPharmacies.length === 0 && (
+          <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+            No pharmacy matched your profile location. Try updating city/state/country in My Profile.
+          </div>
+        )}
       </main>
             </Tabs>
           </div>
@@ -2647,87 +2729,17 @@ case 'pharmacy':
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-slate-800">My Profile</h2>
-                <p className="text-sm text-slate-500">Your account information</p>
+                <p className="text-sm text-slate-500">Manage your account and location for nearest pharmacy</p>
               </div>
             </div>
             <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
-              {profileLoading ? (
-                <div className="text-sm text-slate-500">Loading profile...</div>
-              ) : (
-                <>
-                  <div className="grid md:grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <Label htmlFor="profile-name" className="text-sm font-medium text-slate-700">Full Name</Label>
-                      <Input
-                        id="profile-name"
-                        value={profileForm.name}
-                        onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
-                        className="mt-1.5"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="profile-email" className="text-sm font-medium text-slate-700">Email</Label>
-                      <Input id="profile-email" value={profileForm.email} readOnly className="mt-1.5 bg-slate-100" />
-                    </div>
-                    <div>
-                      <Label htmlFor="profile-phone" className="text-sm font-medium text-slate-700">Phone</Label>
-                      <Input
-                        id="profile-phone"
-                        value={profileForm.phone}
-                        onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
-                        className="mt-1.5"
-                      />
-                    </div>
-                    <div className="p-3 rounded-xl bg-sky-50/60 mt-7">
-                      <span className="text-slate-500">Role:</span>{' '}
-                      <span className="font-semibold text-slate-700 capitalize">{user?.role || 'N/A'}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-3 gap-4 mt-4">
-                    <div>
-                      <Label htmlFor="profile-city" className="text-sm font-medium text-slate-700">City</Label>
-                      <Input
-                        id="profile-city"
-                        value={profileForm.city}
-                        onChange={(e) => setProfileForm((prev) => ({ ...prev, city: e.target.value }))}
-                        className="mt-1.5"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="profile-state" className="text-sm font-medium text-slate-700">State</Label>
-                      <Input
-                        id="profile-state"
-                        value={profileForm.state}
-                        onChange={(e) => setProfileForm((prev) => ({ ...prev, state: e.target.value }))}
-                        className="mt-1.5"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="profile-country" className="text-sm font-medium text-slate-700">Country</Label>
-                      <Input
-                        id="profile-country"
-                        value={profileForm.country}
-                        onChange={(e) => setProfileForm((prev) => ({ ...prev, country: e.target.value }))}
-                        className="mt-1.5"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <div className="mt-5 grid md:grid-cols-2 gap-4 text-sm">
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Name:</span> <span className="font-semibold text-slate-700">{user?.name || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-700">{user?.email || 'N/A'}</span></div>
+                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Role:</span> <span className="font-semibold text-slate-700 capitalize">{user?.role || 'N/A'}</span></div>
                 <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Total Pets:</span> <span className="font-semibold text-slate-700">{myPets.length}</span></div>
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Location:</span> <span className="font-semibold text-slate-700">{[profileForm.city, profileForm.state, profileForm.country].filter(Boolean).join(', ') || 'Not set'}</span></div>
               </div>
               <div className="mt-5 flex gap-3">
-                <Button
-                  onClick={handleProfileSave}
-                  disabled={profileSaving || profileLoading}
-                  className="bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600"
-                >
-                  {profileSaving ? 'Saving...' : 'Save Profile'}
-                </Button>
                 <Button onClick={() => setActiveSection('my-pets')} className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
                   <PawPrint className="mr-2 h-4 w-4" /> View My Pets
                 </Button>

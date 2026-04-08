@@ -128,12 +128,20 @@ export interface VetSignupProfile {
   imageUrl?: string
 }
 
+export interface OwnerSignupProfile {
+  location?: string
+  city?: string
+  state?: string
+  country?: string
+}
+
 interface SignupOptions {
   phone?: string
   city?: string
   state?: string
   country?: string
   vetProfile?: VetSignupProfile
+  ownerProfile?: OwnerSignupProfile
 }
 
 interface SignupResult {
@@ -151,6 +159,7 @@ type ProfileSeed = {
   state?: string
   country?: string
   vetProfile?: VetSignupProfile
+  ownerProfile?: OwnerSignupProfile
 }
 
 interface AuthContextType {
@@ -194,6 +203,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const parseOwnerProfileFromUnknown = (value: unknown): OwnerSignupProfile | undefined => {
+    if (!value || typeof value !== 'object') {
+      return undefined
+    }
+
+    const row = value as Record<string, unknown>
+    return {
+      location: typeof row.location === 'string' ? row.location : undefined,
+      city: typeof row.city === 'string' ? row.city : undefined,
+      state: typeof row.state === 'string' ? row.state : undefined,
+      country: typeof row.country === 'string' ? row.country : undefined,
+    }
+  }
+
   const buildProfilePayload = (seed: ProfileSeed): Record<string, unknown> => {
     const payload: Record<string, unknown> = {
       id: seed.id,
@@ -230,19 +253,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       payload.vet_image_url = seed.vetProfile?.imageUrl?.trim() || null
     }
 
+    if (seed.role === 'user') {
+      payload.location = seed.ownerProfile?.location?.trim() || null
+      payload.city = seed.ownerProfile?.city?.trim() || null
+      payload.state = seed.ownerProfile?.state?.trim() || null
+      payload.country = seed.ownerProfile?.country?.trim() || null
+    }
+
     return payload
   }
 
   const hasTextValue = (value: unknown) => typeof value === 'string' && value.trim().length > 0
 
-  const buildVetBackfillPayload = (params: {
+  const buildProfileBackfillPayload = (params: {
     profile: any
     fallbackName: string
     fallbackPhone?: string
+    fallbackRole: UserRole
     fallbackVetProfile?: VetSignupProfile
+    fallbackOwnerProfile?: OwnerSignupProfile
   }): Record<string, unknown> => {
-    const { profile, fallbackName, fallbackPhone, fallbackVetProfile } = params
+    const {
+      profile,
+      fallbackName,
+      fallbackPhone,
+      fallbackRole,
+      fallbackVetProfile,
+      fallbackOwnerProfile,
+    } = params
     const payload: Record<string, unknown> = {}
+    const profileRole = normalizeUserRole(profile?.role ?? fallbackRole)
 
     if (!hasTextValue(profile?.name) && hasTextValue(fallbackName)) {
       payload.name = fallbackName.trim()
@@ -252,7 +292,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       payload.phone = fallbackPhone?.trim()
     }
 
-    if (!fallbackVetProfile) {
+    if (profileRole === 'user' && fallbackOwnerProfile) {
+      if (!hasTextValue(profile?.location) && hasTextValue(fallbackOwnerProfile.location)) {
+        payload.location = fallbackOwnerProfile.location?.trim()
+      }
+
+      if (!hasTextValue(profile?.city) && hasTextValue(fallbackOwnerProfile.city)) {
+        payload.city = fallbackOwnerProfile.city?.trim()
+      }
+
+      if (!hasTextValue(profile?.state) && hasTextValue(fallbackOwnerProfile.state)) {
+        payload.state = fallbackOwnerProfile.state?.trim()
+      }
+
+      if (!hasTextValue(profile?.country) && hasTextValue(fallbackOwnerProfile.country)) {
+        payload.country = fallbackOwnerProfile.country?.trim()
+      }
+
+      return payload
+    }
+
+    if (profileRole !== 'veterinarian' || !fallbackVetProfile) {
       return payload
     }
 
@@ -301,26 +361,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return payload
   }
 
-  const backfillVetProfileFromMetadata = async (params: {
+  const backfillProfileFromMetadata = async (params: {
     userId: string
     profile: any
     fallbackName: string
     fallbackPhone?: string
     fallbackRole: UserRole
     fallbackVetProfile?: VetSignupProfile
+    fallbackOwnerProfile?: OwnerSignupProfile
   }) => {
-    const { userId, profile, fallbackName, fallbackPhone, fallbackRole, fallbackVetProfile } = params
-    const shouldHandleVet = (profile?.role || fallbackRole) === 'veterinarian'
-
-    if (!shouldHandleVet) {
-      return profile
-    }
-
-    const payload = buildVetBackfillPayload({
+    const {
+      userId,
       profile,
       fallbackName,
       fallbackPhone,
+      fallbackRole,
       fallbackVetProfile,
+      fallbackOwnerProfile,
+    } = params
+    const profileRole = normalizeUserRole(profile?.role ?? fallbackRole)
+    const shouldBackfillProfile = profileRole === 'veterinarian' || profileRole === 'user'
+
+    if (!shouldBackfillProfile) {
+      return profile
+    }
+
+    const payload = buildProfileBackfillPayload({
+      profile,
+      fallbackName,
+      fallbackPhone,
+      fallbackRole,
+      fallbackVetProfile,
+      fallbackOwnerProfile,
     })
 
     if (Object.keys(payload).length === 0) {
@@ -342,7 +414,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ...profile, ...payload }
     }
 
-    console.warn('Vet profile metadata backfill failed:', error)
+    console.warn('Profile metadata backfill failed:', error)
     return profile
   }
 
@@ -480,6 +552,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const fallbackName = normalizeDisplayName(metadata.name, sessionUser.email || '')
           const fallbackVetProfile =
             fallbackRole === 'veterinarian' ? parseVetProfileFromUnknown(metadata.vetProfile) : undefined
+          const fallbackOwnerProfile =
+            fallbackRole === 'user' ? parseOwnerProfileFromUnknown(metadata.ownerProfile) : undefined
 
           let { data: profile, error: profileError } = await supabase
             .from('profiles')
@@ -501,6 +575,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 state: normalizeLocationText(metadata.state),
                 country: normalizeLocationText(metadata.country),
                 vetProfile: fallbackVetProfile,
+                ownerProfile: fallbackOwnerProfile,
               },
               false
             )
@@ -518,13 +593,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }
 
-          profile = await backfillVetProfileFromMetadata({
+          profile = await backfillProfileFromMetadata({
             userId: sessionUser.id,
             profile,
             fallbackName,
             fallbackPhone: normalizePhone(metadata.phone),
             fallbackRole,
             fallbackVetProfile,
+            fallbackOwnerProfile,
           })
 
           setUser({
@@ -565,6 +641,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const normalizedCountry = normalizeLocationText(options?.country)
       const normalizedVetProfile =
         role === 'veterinarian' ? parseVetProfileFromUnknown(options?.vetProfile) : undefined
+      const normalizedOwnerProfile =
+        role === 'user' ? parseOwnerProfileFromUnknown(options?.ownerProfile) : undefined
 
       const signupMetadata: Record<string, unknown> = {
         name: normalizedName,
@@ -577,6 +655,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (role === 'veterinarian') {
         signupMetadata.vetProfile = normalizedVetProfile || null
+      }
+
+      if (role === 'user') {
+        signupMetadata.ownerProfile = normalizedOwnerProfile || null
       }
 
       // Sign up with Supabase Auth
@@ -603,15 +685,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           state: normalizedState,
           country: normalizedCountry,
           vetProfile: normalizedVetProfile,
+          ownerProfile: normalizedOwnerProfile,
         }
 
         const profileState = await syncAppRecords(profileSeed, !authData.session)
         if (profileState === 'deferred') {
           warningMessage =
             'Profile creation is deferred until first successful login because the sign-up session is not active yet.'
-        } else if (role === 'veterinarian' && profileState === 'created_basic') {
-          warningMessage =
-            'Veterinarian profile fields (specialty/city/description) were not saved because vet columns are missing in the database. Run vet_profile_migration.sql in Supabase SQL Editor.'
+        } else if (profileState === 'created_basic') {
+          if (role === 'veterinarian') {
+            warningMessage =
+              'Veterinarian profile fields (specialty/city/description) were not saved because vet columns are missing in the database. Run vet_profile_migration.sql in Supabase SQL Editor.'
+          } else if (role === 'user') {
+            warningMessage =
+              'Pet owner location fields were not saved because location columns are missing in the database. Run owner_profile_location_migration.sql in Supabase SQL Editor.'
+          }
         }
 
         setUser({
@@ -665,6 +753,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const fallbackName = normalizeDisplayName(metadata.name, data.user.email || normalizedEmail)
         const fallbackVetProfile =
           fallbackRole === 'veterinarian' ? parseVetProfileFromUnknown(metadata.vetProfile) : undefined
+        const fallbackOwnerProfile =
+          fallbackRole === 'user' ? parseOwnerProfileFromUnknown(metadata.ownerProfile) : undefined
 
         let { data: profile, error: profileError } = await supabase
           .from('profiles')
@@ -689,6 +779,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 state: normalizeLocationText(metadata.state),
                 country: normalizeLocationText(metadata.country),
               vetProfile: fallbackVetProfile,
+              ownerProfile: fallbackOwnerProfile,
             },
             false
           )
@@ -707,13 +798,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           profile = profileReload.data
         }
 
-        profile = await backfillVetProfileFromMetadata({
+        profile = await backfillProfileFromMetadata({
           userId: data.user.id,
           profile,
           fallbackName,
           fallbackPhone: normalizePhone(metadata.phone),
           fallbackRole,
           fallbackVetProfile,
+          fallbackOwnerProfile,
         })
 
         const resolvedRole = normalizeUserRole(profile?.role ?? fallbackRole)

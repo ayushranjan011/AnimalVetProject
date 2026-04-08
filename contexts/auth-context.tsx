@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { supabase } from '@/lib/supabase'
+import { hasSupabaseConfig, supabase } from '@/lib/supabase'
 
 type UserRole = 'user' | 'veterinarian' | 'ngo' | 'pet_nanny'
 
@@ -461,6 +461,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check if user is already logged in on mount
   useEffect(() => {
     const checkSession = async () => {
+      if (!hasSupabaseConfig) {
+        console.warn('Supabase is not configured. Skipping session check.')
+        setLoading(false)
+        return
+      }
+
       try {
         const { data, error } = await supabase.auth.getSession()
         if (error) {
@@ -547,6 +553,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<SignupResult> => {
     setError(null)
     try {
+      if (!hasSupabaseConfig) {
+        throw new Error('Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.')
+      }
+
       const normalizedEmail = email.trim().toLowerCase()
       const normalizedName = normalizeDisplayName(name, normalizedEmail)
       const normalizedPhone = normalizePhone(options?.phone)
@@ -630,6 +640,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string, expectedRole?: UserRole): Promise<User> => {
     setError(null)
     try {
+      if (!hasSupabaseConfig) {
+        throw new Error('Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.')
+      }
+
       const normalizedEmail = email.trim().toLowerCase()
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
@@ -745,6 +759,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     setError(null)
     try {
+      if (!hasSupabaseConfig) {
+        setUser(null)
+        return
+      }
+
       const { error } = await supabase.auth.signOut()
       if (error) throw error
       setUser(null)

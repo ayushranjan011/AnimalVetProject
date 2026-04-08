@@ -61,7 +61,6 @@ import {
   Truck,
   ImageIcon,
   ThumbsUp,
-  Send,
   Building,
   Building2,
   Phone,
@@ -73,6 +72,7 @@ import {
   ChevronDown,
   UserCircle2,
   IndianRupee,
+  Eye,
 } from 'lucide-react'
 
 type ActiveSection =
@@ -212,6 +212,36 @@ type RecentActivityItem = {
   timestamp: number
 }
 
+type BlogComment = {
+  author: string
+  text: string
+  time: string
+}
+
+type CommunityBlog = {
+  id: string
+  title: string
+  author: string
+  date: string
+  image: string
+  summary: string
+  likes: number
+  reads: number
+  comments: BlogComment[]
+}
+
+type CommunityVlog = {
+  id: string
+  title: string
+  owner: string
+  description: string
+  duration: string
+  views: string
+  likes: string
+  thumbnail: string
+  youtubeUrl: string
+}
+
 type UserProfileForm = {
   name: string
   email: string
@@ -288,6 +318,30 @@ const isSetupPendingError = (error: any) => {
 
 const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
+const getYouTubeEmbedUrl = (url: string, autoplay = false) => {
+  try {
+    const parsed = new URL(url)
+    const params = new URLSearchParams()
+    if (autoplay) {
+      params.set('autoplay', '1')
+      params.set('playsinline', '1')
+    }
+    if (parsed.hostname.includes('youtu.be')) {
+      const videoId = parsed.pathname.replace('/', '')
+      return videoId ? `https://www.youtube.com/embed/${videoId}${params.toString() ? `?${params.toString()}` : ''}` : url
+    }
+
+    if (parsed.hostname.includes('youtube.com')) {
+      const videoId = parsed.searchParams.get('v')
+      return videoId ? `https://www.youtube.com/embed/${videoId}${params.toString() ? `?${params.toString()}` : ''}` : url
+    }
+  } catch {
+    return url
+  }
+
+  return url
+}
+
 const formatRelativeTime = (value?: string | null) => {
   if (!value) return 'Just now'
 
@@ -359,9 +413,25 @@ function UserDashboardContent() {
   const [showPassport, setShowPassport] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<ActiveSection>('home')
-  const [feedback, setFeedback] = useState('')
   const [bookingModalOpen, setBookingModalOpen] = useState(false)
   const [selectedVet, setSelectedVet] = useState<VetDirectoryItem | null>(null)
+  const [selectedBlogPost, setSelectedBlogPost] = useState<CommunityBlog | null>(null)
+  const [selectedBlogView, setSelectedBlogView] = useState<'post' | 'comments'>('post')
+  const [blogLikeStates, setBlogLikeStates] = useState<Record<string, boolean>>({})
+  const [blogReadMarks, setBlogReadMarks] = useState<Record<string, boolean>>({})
+  const [blogCommentDrafts, setBlogCommentDrafts] = useState<Record<string, string>>({})
+  const [blogCommentsById, setBlogCommentsById] = useState<Record<string, BlogComment[]>>({
+    'first-time-pet-owners': [
+      { author: 'Aarav', text: 'Great checklist for new pet parents.', time: '2h ago' },
+      { author: 'Meera', text: 'The feeding tips were especially helpful.', time: '1d ago' },
+    ],
+    'pet-body-language': [
+      { author: 'Kavya', text: 'This helped me understand my dog much better.', time: '3h ago' },
+    ],
+    'senior-dog-nutrition': [
+      { author: 'Rohit', text: 'Useful guide for my older Labrador.', time: '6h ago' },
+    ],
+  })
   const [showAddPetPopup, setShowAddPetPopup] = useState(false)
   const [petModalMode, setPetModalMode] = useState<'add' | 'edit'>('add')
   const [editingPetId, setEditingPetId] = useState<string | null>(null)
@@ -462,8 +532,76 @@ function UserDashboardContent() {
     profileImage: '',
     notes: '',
   })
+  const [activeVlogId, setActiveVlogId] = useState<string | null>(null)
   const resolvedVolunteerIdProofFile =
     typeof volunteerIdProofFile === 'undefined' ? null : volunteerIdProofFile
+
+  useEffect(() => {
+    if (activeSection !== 'community' && activeVlogId) {
+      setActiveVlogId(null)
+    }
+  }, [activeSection, activeVlogId])
+
+  const handleBlogLike = (blogId: string) => {
+    setBlogLikeStates((previous) => ({
+      ...previous,
+      [blogId]: !previous[blogId],
+    }))
+  }
+
+  const handleMarkBlogRead = (blogId: string) => {
+    setBlogReadMarks((previous) => {
+      if (previous[blogId]) return previous
+      return {
+        ...previous,
+        [blogId]: true,
+      }
+    })
+  }
+
+  const handleOpenBlogPost = (blog: CommunityBlog) => {
+    setSelectedBlogView('post')
+    handleMarkBlogRead(blog.id)
+    setSelectedBlogPost(blog)
+  }
+
+  const handleOpenBlogComments = (blog: CommunityBlog) => {
+    setSelectedBlogView('comments')
+    handleMarkBlogRead(blog.id)
+    setSelectedBlogPost(blog)
+  }
+
+  const handleCloseBlogPost = () => {
+    setSelectedBlogPost(null)
+  }
+
+  const handleBlogCommentChange = (blogId: string, value: string) => {
+    setBlogCommentDrafts((previous) => ({
+      ...previous,
+      [blogId]: value,
+    }))
+  }
+
+  const handleBlogCommentSubmit = (blogId: string) => {
+    const commentText = (blogCommentDrafts[blogId] || '').trim()
+    if (!commentText) return
+
+    setBlogCommentsById((previous) => ({
+      ...previous,
+      [blogId]: [
+        {
+          author: user?.name || 'You',
+          text: commentText,
+          time: 'Just now',
+        },
+        ...(previous[blogId] || []),
+      ],
+    }))
+    setBlogCommentDrafts((previous) => ({
+      ...previous,
+      [blogId]: '',
+    }))
+  }
 
   const handleLogout = () => {
     logout()
@@ -2149,16 +2287,83 @@ phImage: "/images/img/smartchemist.webp"
     ? ngoPetProfiles.filter((pet) => pet.ngoId === selectedNgoForProfiles.id)
     : []
 
-  const blogs = [
-    { title: '10 Tips for First-Time Pet Owners', author: 'Dr. Sarah Johnson', date: 'Jan 15, 2026', image: '/images/blog-1.jpg', likes: 234 },
-    { title: 'Understanding Your Pet\'s Body Language', author: 'Emily Davis', date: 'Jan 12, 2026', image: '/images/training-video-1.jpg', likes: 189 },
-    { title: 'Nutrition Guide for Senior Dogs', author: 'Dr. Michael Chen', date: 'Jan 10, 2026', image: '/images/product-food.jpg', likes: 156 },
+  const blogs: CommunityBlog[] = [
+    {
+      id: 'first-time-pet-owners',
+      title: '10 Tips for First-Time Pet Owners',
+      author: 'Dr. Sarah Johnson',
+      date: 'Jan 15, 2026',
+      image: '/images/blog-1.jpg',
+      summary: 'A practical starter guide covering feeding, vaccination, daily care, and what to prepare in the first 30 days.',
+      likes: 234,
+      reads: 1840,
+      comments: [
+        { author: 'Aarav', text: 'Very helpful for someone adopting a puppy soon.', time: '2h ago' },
+        { author: 'Meera', text: 'Loved the vaccination reminders section.', time: '1d ago' },
+      ],
+    },
+    {
+      id: 'pet-body-language',
+      title: 'Understanding Your Pet\'s Body Language',
+      author: 'Emily Davis',
+      date: 'Jan 12, 2026',
+      image: '/images/training-video-1.jpg',
+      summary: 'Learn how to recognize stress, comfort, excitement, and warning signs from your pet’s posture and movements.',
+      likes: 189,
+      reads: 1260,
+      comments: [
+        { author: 'Riya', text: 'This explains tail movements so well.', time: '5h ago' },
+      ],
+    },
+    {
+      id: 'senior-dog-nutrition',
+      title: 'Nutrition Guide for Senior Dogs',
+      author: 'Dr. Michael Chen',
+      date: 'Jan 10, 2026',
+      image: '/images/product-food.jpg',
+      summary: 'A vet-approved breakdown of meal timing, supplements, and diet changes for aging dogs.',
+      likes: 156,
+      reads: 980,
+      comments: [
+        { author: 'Nikhil', text: 'Useful for my 11-year-old beagle.', time: '8h ago' },
+      ],
+    },
   ]
 
-  const vlogs = [
-    { title: 'A Day at the Animal Shelter', duration: '12:45', views: '45K', thumbnail: '/images/rescue-dog-1.jpg' },
-    { title: 'Pet Adoption Success Stories', duration: '18:30', views: '32K', thumbnail: '/images/pet-dog-1.jpg' },
-    { title: 'Behind the Scenes: Vet Clinic', duration: '15:20', views: '28K', thumbnail: '/images/vet-clinic.jpg' },
+  const vlogs: CommunityVlog[] = [
+    {
+      id: 'animal-shelter-day',
+      title: 'A Day at the Animal Shelter',
+      owner: 'Rescue Team Delhi',
+      description: 'A short walkthrough of rescue intake, feeding routines, and how the team prepares animals for adoption.',
+      duration: '12:45',
+      views: '45K',
+      likes: '3.8K',
+      thumbnail: '/images/rescue-dog-1.jpg',
+      youtubeUrl: 'https://youtu.be/PMjBFyFO4W8?si=jeuwlDexBujqfKlU',
+    },
+    {
+      id: 'pet-adoption-success',
+      title: 'Pet Adoption Success Stories',
+      owner: 'INNOVET Community',
+      description: 'Families share how adoption changed their lives and why rescue-first choices matter.',
+      duration: '18:30',
+      views: '32K',
+      likes: '2.9K',
+      thumbnail: '/images/pet-dog-1.jpg',
+      youtubeUrl: 'https://youtu.be/g_ow9J6wBv0?si=SsEBWEqsS8LIVHn0',
+    },
+    {
+      id: 'vet-clinic-behind-scenes',
+      title: 'Behind the Scenes: Vet Clinic',
+      owner: 'Dr. Sarah Johnson',
+      description: 'See how the clinic prepares for routine checkups, emergency cases, and daily care workflows.',
+      duration: '15:20',
+      views: '28K',
+      likes: '2.1K',
+      thumbnail: '/images/vet-clinic.jpg',
+      youtubeUrl: 'https://www.youtube.com/watch?v=4WM4eVsXI-0&t=105s',
+    },
   ]
 
   const sidebarItems = [
@@ -2734,7 +2939,7 @@ case 'pharmacy':
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-slate-800">Community</h2>
-                <p className="text-sm text-slate-500">Blogs, vlogs, and feedback</p>
+                <p className="text-sm text-slate-500">Blogs and vlogs with comments, likes, and reads</p>
               </div>
             </div>
 
@@ -2742,21 +2947,44 @@ case 'pharmacy':
               <TabsList className="bg-white/60 backdrop-blur-sm border border-white/50 p-1 rounded-xl mb-6">
                 <TabsTrigger value="blogs" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-purple-500 data-[state=active]:text-white">Blogs</TabsTrigger>
                 <TabsTrigger value="vlogs" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-purple-500 data-[state=active]:text-white">Vlogs</TabsTrigger>
-                <TabsTrigger value="feedback" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-purple-500 data-[state=active]:text-white">Feedback</TabsTrigger>
               </TabsList>
 
               <TabsContent value="blogs" className="mt-0 space-y-4">
                 {blogs.map((blog) => (
-                  <div key={blog.title} className="flex flex-col md:flex-row gap-4 p-4 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
-                    <div className="md:w-48 aspect-video relative rounded-xl overflow-hidden">
+                  <div key={blog.id} className="flex flex-col md:flex-row gap-4 p-4 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
+                    <div className="md:w-44 aspect-video md:aspect-auto md:h-28 relative rounded-xl overflow-hidden shrink-0">
                       <Image src={blog.image || "/placeholder.svg"} alt={blog.title} fill className="object-cover" />
                     </div>
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-slate-800 mb-1">{blog.title}</h3>
-                      <p className="text-sm text-slate-500 mb-2">By {blog.author} | {blog.date}</p>
-                      <div className="flex items-center gap-4">
-                        <span className="flex items-center text-sm text-rose-500"><ThumbsUp className="w-4 h-4 mr-1" />{blog.likes} likes</span>
-                        <Button variant="ghost" size="sm" className="text-violet-600">Read More <ChevronRight className="ml-1 h-4 w-4" /></Button>
+                      <p className="text-sm text-slate-500 mb-2">Author: {blog.author} | {blog.date}</p>
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600 mb-4">
+                        <span className="flex items-center text-rose-500"><ThumbsUp className="w-4 h-4 mr-1" />{blog.likes + (blogLikeStates[blog.id] ? 1 : 0)} likes</span>
+                        <span className="flex items-center text-sky-600"><Eye className="w-4 h-4 mr-1" />{(blog.reads + (blogReadMarks[blog.id] ? 1 : 0)).toLocaleString()} reads</span>
+                        <span className="flex items-center text-violet-600"><MessageSquare className="w-4 h-4 mr-1" />{(blogCommentsById[blog.id] || blog.comments).length} comments</span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => handleOpenBlogPost(blog)}
+                          className="bg-gradient-to-r from-violet-500 to-purple-500"
+                        >
+                          Open Post
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-violet-200 text-violet-600 hover:bg-violet-50 bg-transparent"
+                          onClick={() => handleOpenBlogComments(blog)}
+                        >
+                          Comments
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-rose-200 text-rose-600 hover:bg-rose-50 bg-transparent"
+                          onClick={() => handleBlogLike(blog.id)}
+                        >
+                          <ThumbsUp className="mr-2 h-4 w-4" /> {blogLikeStates[blog.id] ? 'Unlike' : 'Like'}
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -2764,45 +2992,185 @@ case 'pharmacy':
               </TabsContent>
 
               <TabsContent value="vlogs" className="mt-0">
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {vlogs.map((vlog) => (
-                    <div key={vlog.title} className="group relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all">
-                      <div className="aspect-video relative">
-                        <Image src={vlog.thumbnail || "/placeholder.svg"} alt={vlog.title} fill className="object-cover group-hover:scale-105 transition-transform" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                            <Play className="w-6 h-6 text-violet-600 ml-1" />
-                          </div>
-                        </div>
-                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-                          <span className="text-xs text-white/90">{vlog.duration}</span>
-                          <span className="text-xs text-white/90">{vlog.views} views</span>
+                    <div key={vlog.id} className={`group overflow-hidden rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50 hover:shadow-xl transition-all ${activeVlogId === vlog.id ? 'ring-2 ring-violet-400' : ''}`}>
+                      <div className="aspect-[4/3] relative bg-slate-100">
+                        {activeVlogId === vlog.id ? (
+                          <iframe
+                            src={getYouTubeEmbedUrl(vlog.youtubeUrl, true)}
+                            title={vlog.title}
+                            className="absolute inset-0 h-full w-full"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setActiveVlogId(vlog.id)}
+                            className="absolute inset-0 w-full h-full text-left"
+                            aria-label={`Play ${vlog.title}`}
+                            title={`Play ${vlog.title}`}
+                          >
+                            <Image
+                              src={vlog.thumbnail || '/placeholder.svg'}
+                              alt={vlog.title}
+                              fill
+                              className="object-cover"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                                <Play className="w-5 h-5 text-violet-600 ml-1" />
+                              </div>
+                            </div>
+                          </button>
+                        )}
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
+                          <span className="rounded-full bg-black/70 px-2 py-1 text-xs text-white/90">{vlog.duration}</span>
+                          <span className="rounded-full bg-black/70 px-2 py-1 text-xs text-white/90">{vlog.views} views</span>
                         </div>
                       </div>
-                      <div className="p-4">
-                        <h4 className="font-semibold text-slate-800">{vlog.title}</h4>
+                      <div className="p-3 space-y-2">
+                        <div>
+                          <h4 className="font-semibold text-slate-800 text-sm leading-snug">{vlog.title}</h4>
+                          <p className="text-sm text-slate-500">Owner: {vlog.owner}</p>
+                        </div>
+                        <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">{vlog.description}</p>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                          <span className="flex items-center text-rose-500"><ThumbsUp className="w-4 h-4 mr-1" />{vlog.likes} likes</span>
+                          <span className="flex items-center text-sky-600"><Eye className="w-4 h-4 mr-1" />{vlog.views} views</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            onClick={() => setActiveVlogId(vlog.id)}
+                            className="bg-gradient-to-r from-violet-500 to-purple-500 text-xs h-8 px-3"
+                          >
+                            Play
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="border-violet-200 text-violet-600 hover:bg-violet-50 bg-transparent text-xs h-8 px-3"
+                            onClick={() => window.open(vlog.youtubeUrl, '_blank', 'noopener,noreferrer')}
+                          >
+                            YouTube
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               </TabsContent>
-
-              <TabsContent value="feedback" className="mt-0">
-                <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4">Share Your Feedback</h3>
-                  <Textarea 
-                    placeholder="Tell us about your experience with INNOVET..."
-                    className="mb-4 min-h-32"
-                    value={feedback}
-                    onChange={(e) => setFeedback(e.target.value)}
-                  />
-                  <Button className="bg-gradient-to-r from-violet-500 to-purple-500">
-                    <Send className="mr-2 h-4 w-4" /> Submit Feedback
-                  </Button>
-                </div>
-              </TabsContent>
             </Tabs>
+
+            <Dialog open={Boolean(selectedBlogPost)} onOpenChange={(open) => !open && handleCloseBlogPost()}>
+              <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                {selectedBlogPost && (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>{selectedBlogPost.title}</DialogTitle>
+                      <DialogDescription>
+                        By {selectedBlogPost.author} | {selectedBlogPost.date}
+                      </DialogDescription>
+                    </DialogHeader>
+
+                      <div
+                        className="space-y-5 max-h-[60vh] overflow-y-auto pr-1"
+                        onScroll={(event) => {
+                          const target = event.currentTarget
+                          const isAtBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 24
+                          if (isAtBottom && selectedBlogPost) {
+                            handleMarkBlogRead(selectedBlogPost.id)
+                          }
+                        }}
+                      >
+                      <div className="aspect-video relative rounded-2xl overflow-hidden">
+                        <Image
+                          src={selectedBlogPost.image || '/placeholder.svg'}
+                          alt={selectedBlogPost.title}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+                        <span className="flex items-center text-rose-500">
+                          <ThumbsUp className="w-4 h-4 mr-1" />
+                          {selectedBlogPost.likes + (blogLikeStates[selectedBlogPost.id] ? 1 : 0)} likes
+                        </span>
+                        <span className="flex items-center text-sky-600">
+                          <Eye className="w-4 h-4 mr-1" />
+                          Read by {(selectedBlogPost.reads + (blogReadMarks[selectedBlogPost.id] ? 1 : 0)).toLocaleString()} people
+                        </span>
+                        <span className="flex items-center text-violet-600">
+                          <MessageSquare className="w-4 h-4 mr-1" />
+                          {(blogCommentsById[selectedBlogPost.id] || selectedBlogPost.comments).length} comments
+                        </span>
+                      </div>
+
+                      {selectedBlogView === 'post' ? (
+                        <>
+                          <p className="text-sm text-slate-700 leading-relaxed">{selectedBlogPost.summary}</p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              onClick={() => handleBlogLike(selectedBlogPost.id)}
+                              className="bg-gradient-to-r from-rose-500 to-pink-500"
+                            >
+                              <ThumbsUp className="mr-2 h-4 w-4" /> {blogLikeStates[selectedBlogPost.id] ? 'Unlike Post' : 'Like Post'}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => setSelectedBlogView('comments')}
+                              className="border-violet-200 text-violet-600 hover:bg-violet-50 bg-transparent"
+                            >
+                              View Comments
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="space-y-3">
+                            <h4 className="font-semibold text-slate-800">Comments</h4>
+                            {(blogCommentsById[selectedBlogPost.id] || selectedBlogPost.comments).map((comment, index) => (
+                              <div key={`${selectedBlogPost.id}-dialog-comment-${index}`} className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <p className="text-sm font-semibold text-slate-800">{comment.author}</p>
+                                  <p className="text-xs text-slate-400">{comment.time}</p>
+                                </div>
+                                <p className="text-sm text-slate-600">{comment.text}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          <Textarea
+                            value={blogCommentDrafts[selectedBlogPost.id] || ''}
+                            onChange={(event) => handleBlogCommentChange(selectedBlogPost.id, event.target.value)}
+                            placeholder="Write a comment for this post..."
+                            className="min-h-28"
+                          />
+
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              onClick={() => handleBlogCommentSubmit(selectedBlogPost.id)}
+                              className="bg-gradient-to-r from-violet-500 to-purple-500"
+                            >
+                              Post Comment
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => setSelectedBlogView('post')}
+                              className="border-slate-200 text-slate-700 hover:bg-slate-50 bg-transparent"
+                            >
+                              Back to Post
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </DialogContent>
+            </Dialog>
           </div>
         )
 

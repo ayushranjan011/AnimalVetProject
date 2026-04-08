@@ -225,21 +225,21 @@ type OwnerProfileForm = UserProfileForm & {
   location: string
 }
 
+const initialOwnerProfileForm: OwnerProfileForm = {
+  name: '',
+  email: '',
+  phone: '',
+  location: '',
+  city: '',
+  state: '',
+  country: '',
+}
+
 type IncomingVideoCall = {
   notificationId: string
   title: string
   description: string
   roomID: string
-}
-
-const initialOwnerProfileForm: OwnerProfileForm = {
-  name: '',
-  email: '',
-  phone: '',
-  city: '',
-  state: '',
-  country: '',
-  location: '',
 }
 
 const mapToUsersRole = (

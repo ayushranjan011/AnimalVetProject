@@ -1,14 +1,11 @@
 'use client'
 
-import { useState, lazy, Suspense } from 'react'
-import dynamic from 'next/dynamic'
+import { useEffect, useState } from 'react'
 import { MessageSquare } from 'lucide-react'
 
-const Webchat = dynamic(() => import('@botpress/webchat').then(mod => ({ default: mod.Webchat })), {
-  ssr: false,
-})
-
-const clientId = '33efe5e8-e337-409b-beea-8d1e317722e3'
+const botpressScriptSrc = 'https://cdn.botpress.cloud/webchat/v3.6/inject.js'
+const botpressConfigScriptSrc = 'https://files.bpcontent.cloud/2026/04/08/10/20260408105025-9Z5T0TTI.js'
+const botpressEmbeddedId = 'bp-embedded-chat'
 
 export default function ChatbotPanel() {
   const [isWebchatOpen, setIsWebchatOpen] = useState(false)
@@ -16,6 +13,44 @@ export default function ChatbotPanel() {
   const toggleWebchat = () => {
     setIsWebchatOpen((prevState) => !prevState)
   }
+
+  useEffect(() => {
+    const loadScript = (id: string, src: string, defer?: boolean) =>
+      new Promise<void>((resolve, reject) => {
+        const existing = document.getElementById(id) as HTMLScriptElement | null
+        if (existing) {
+          if (existing.dataset.loaded === 'true') {
+            resolve()
+            return
+          }
+
+          existing.addEventListener('load', () => resolve(), { once: true })
+          existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true })
+          return
+        }
+
+        const script = document.createElement('script')
+        script.id = id
+        script.src = src
+        script.async = true
+        script.defer = !!defer
+        script.addEventListener('load', () => {
+          script.dataset.loaded = 'true'
+          resolve()
+        }, { once: true })
+        script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true })
+        document.head.appendChild(script)
+      })
+
+    void (async () => {
+      try {
+        await loadScript('botpress-webchat-script', botpressScriptSrc)
+        await loadScript('botpress-webchat-config-script', botpressConfigScriptSrc, true)
+      } catch (error) {
+        console.error('Botpress load failed:', error)
+      }
+    })()
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -51,14 +86,20 @@ export default function ChatbotPanel() {
         </div>
 
         <div className="relative min-h-96 bg-white" suppressHydrationWarning>
-          {isWebchatOpen ? (
-            <Suspense fallback={<div className="w-full h-96 flex items-center justify-center">Loading chat...</div>}>
-              <div style={{ width: '100%', height: '100%', minHeight: '500px' }} suppressHydrationWarning>
-                <Webchat clientId={clientId} />
-              </div>
-            </Suspense>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-96 gap-4">
+          <div
+            id={botpressEmbeddedId}
+            style={{
+              width: '100%',
+              minHeight: '500px',
+              height: '100%',
+              opacity: isWebchatOpen ? 1 : 0,
+              pointerEvents: isWebchatOpen ? 'auto' : 'none',
+              transition: 'opacity 180ms ease',
+            }}
+            suppressHydrationWarning
+          />
+          {!isWebchatOpen && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-white/95 backdrop-blur-sm">
               <div className="w-16 h-16 rounded-full bg-teal-100 flex items-center justify-center">
                 <MessageSquare className="w-8 h-8 text-teal-600" />
               </div>
@@ -95,4 +136,16 @@ export default function ChatbotPanel() {
       </div>
     </div>
   )
+}
+
+declare global {
+  interface Window {
+    botpress?: {
+      on?: (event: string, callback: () => void) => void
+      init?: (config: any) => void
+      open?: () => void
+      close?: () => void
+      toggle?: () => void
+    }
+  }
 }

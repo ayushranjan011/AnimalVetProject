@@ -232,6 +232,16 @@ type IncomingVideoCall = {
   roomID: string
 }
 
+const initialOwnerProfileForm: OwnerProfileForm = {
+  name: '',
+  email: '',
+  phone: '',
+  city: '',
+  state: '',
+  country: '',
+  location: '',
+}
+
 const mapToUsersRole = (
   role: 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | undefined
 ): 'pet_owner' | 'veterinarian' | 'ngo' | 'pet_nanny' => {
@@ -437,28 +447,6 @@ function UserDashboardContent() {
   const [ownerProfileLoading, setOwnerProfileLoading] = useState(false)
   const [ownerProfileSaving, setOwnerProfileSaving] = useState(false)
   const [ownerProfileSchemaWarning, setOwnerProfileSchemaWarning] = useState('')
-  const [showVolunteerForm, setShowVolunteerForm] = useState(false)
-  const [selectedNgo, setSelectedNgo] = useState<NgoDirectoryItem | null>(null)
-  const [volunteerForm, setVolunteerForm] = useState<VolunteerApplicationForm>(
-    initialVolunteerApplicationForm
-  )
-  const [volunteerIdProofFile, setVolunteerIdProofFile] = useState<File | null>(null)
-  const [volunteerIdProofPreview, setVolunteerIdProofPreview] = useState('')
-  const [submittingVolunteerForm, setSubmittingVolunteerForm] = useState(false)
-  const [showNgoPetProfiles, setShowNgoPetProfiles] = useState(false)
-  const [selectedNgoForProfiles, setSelectedNgoForProfiles] =
-    useState<NgoDirectoryItem | null>(null)
-  const [showAdoptionForm, setShowAdoptionForm] = useState(false)
-  const [selectedAdoptionNgo, setSelectedAdoptionNgo] = useState<NgoDirectoryItem | null>(null)
-  const [selectedAdoptionPet, setSelectedAdoptionPet] = useState<NgoPetProfile | null>(null)
-  const [adoptionForm, setAdoptionForm] = useState<PetAdoptionForm>(initialPetAdoptionForm)
-  const [adoptionIdProofFile, setAdoptionIdProofFile] = useState<File | null>(null)
-  const [adoptionIdProofPreview, setAdoptionIdProofPreview] = useState('')
-  const [submittingAdoptionForm, setSubmittingAdoptionForm] = useState(false)
-  const [showHandoverForm, setShowHandoverForm] = useState(false)
-  const [selectedHandoverNgo, setSelectedHandoverNgo] = useState<NgoDirectoryItem | null>(null)
-  const [handoverForm, setHandoverForm] = useState<PetHandoverForm>(initialPetHandoverForm)
-  const [submittingHandoverForm, setSubmittingHandoverForm] = useState(false)
   const [newPetForm, setNewPetForm] = useState({
     name: '',
     species: 'Dog',
@@ -474,6 +462,8 @@ function UserDashboardContent() {
     profileImage: '',
     notes: '',
   })
+  const resolvedVolunteerIdProofFile =
+    typeof volunteerIdProofFile === 'undefined' ? null : volunteerIdProofFile
 
   const handleLogout = () => {
     logout()
@@ -703,18 +693,18 @@ function UserDashboardContent() {
   }, [petImageFile])
 
   useEffect(() => {
-    if (!volunteerIdProofFile) {
+    if (!resolvedVolunteerIdProofFile) {
       setVolunteerIdProofPreview('')
       return
     }
 
-    const previewUrl = URL.createObjectURL(volunteerIdProofFile)
+    const previewUrl = URL.createObjectURL(resolvedVolunteerIdProofFile)
     setVolunteerIdProofPreview(previewUrl)
 
     return () => {
       URL.revokeObjectURL(previewUrl)
     }
-  }, [volunteerIdProofFile])
+  }, [resolvedVolunteerIdProofFile])
 
   useEffect(() => {
     if (!adoptionIdProofFile) {
@@ -1576,14 +1566,14 @@ function UserDashboardContent() {
       return
     }
 
-    if (!volunteerIdProofFile) {
+    if (!resolvedVolunteerIdProofFile) {
       alert('Please upload ID proof.')
       return
     }
 
     try {
       setSubmittingVolunteerForm(true)
-      const idProofPath = await uploadVolunteerIdProof(volunteerIdProofFile)
+      const idProofPath = await uploadVolunteerIdProof(resolvedVolunteerIdProofFile)
       const ownerId = petOwnerId || user?.id || null
       const ngoId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
         selectedNgo.id

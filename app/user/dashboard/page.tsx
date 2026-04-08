@@ -205,11 +205,73 @@ type PetAdoptionForm = {
   requestPetPassport: boolean
 }
 
+type RecentActivityItem = {
+  title: string
+  time: string
+  type: 'reminder' | 'message' | 'content'
+  timestamp: number
+}
+
+type UserProfileForm = {
+  name: string
+  email: string
+  phone: string
+  city: string
+  state: string
+  country: string
+}
+
+type OwnerProfileForm = UserProfileForm & {
+  location: string
+}
+
 type IncomingVideoCall = {
   notificationId: string
   title: string
   description: string
   roomID: string
+}
+
+const initialOwnerProfileForm: OwnerProfileForm = {
+  name: '',
+  email: '',
+  phone: '',
+  location: '',
+  city: '',
+  state: '',
+  country: '',
+}
+
+const initialVolunteerApplicationForm: VolunteerApplicationForm = {
+  fullName: '',
+  email: '',
+  phone: '',
+  age: '',
+  city: '',
+  availability: '',
+  skills: '',
+  experience: '',
+  idProofNumber: '',
+  message: '',
+}
+
+const initialPetHandoverForm: PetHandoverForm = {
+  ownerName: '',
+  ownerEmail: '',
+  ownerPhone: '',
+  handoverPetId: '',
+}
+
+const initialPetAdoptionForm: PetAdoptionForm = {
+  applicantName: '',
+  applicantEmail: '',
+  applicantPhone: '',
+  city: '',
+  address: '',
+  preferredPetType: 'Dog',
+  experience: '',
+  verificationIdNumber: '',
+  requestPetPassport: true,
 }
 
 const mapToUsersRole = (
@@ -222,15 +284,18 @@ const mapToUsersRole = (
   return 'pet_owner'
 }
 
-const isMissingColumnError = (error: any) => {
+const isMissingColumnError = (error: any, columnName?: string) => {
   const message = String(error?.message || '').toLowerCase()
   const details = String(error?.details || '').toLowerCase()
+  const normalizedColumnName = normalizeText(columnName).toLowerCase()
   return (
     error?.code === 'PGRST204' ||
     error?.code === '42703' ||
     message.includes('could not find') ||
     message.includes('column') ||
-    details.includes('column')
+    details.includes('column') ||
+    (!!normalizedColumnName &&
+      (message.includes(normalizedColumnName) || details.includes(normalizedColumnName)))
   )
 }
 
@@ -351,6 +416,9 @@ function UserDashboardContent() {
   const [dietPlansLoading, setDietPlansLoading] = useState(false)
   const [dietPlansError, setDietPlansError] = useState('')
   const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([])
+  const [ngos, setNgos] = useState<NgoDirectoryItem[]>([])
+  const [ngosLoading, setNgosLoading] = useState(false)
+  const [ngoSchemaWarning, setNgoSchemaWarning] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileForm, setProfileForm] = useState<UserProfileForm>({
@@ -361,6 +429,33 @@ function UserDashboardContent() {
     state: '',
     country: '',
   })
+  const [ownerProfileForm, setOwnerProfileForm] =
+    useState<OwnerProfileForm>(initialOwnerProfileForm)
+  const [ownerProfileLoading, setOwnerProfileLoading] = useState(false)
+  const [ownerProfileSaving, setOwnerProfileSaving] = useState(false)
+  const [ownerProfileSchemaWarning, setOwnerProfileSchemaWarning] = useState('')
+  const [showVolunteerForm, setShowVolunteerForm] = useState(false)
+  const [selectedNgo, setSelectedNgo] = useState<NgoDirectoryItem | null>(null)
+  const [volunteerForm, setVolunteerForm] = useState<VolunteerApplicationForm>(
+    initialVolunteerApplicationForm
+  )
+  const [volunteerIdProofFile, setVolunteerIdProofFile] = useState<File | null>(null)
+  const [volunteerIdProofPreview, setVolunteerIdProofPreview] = useState('')
+  const [submittingVolunteerForm, setSubmittingVolunteerForm] = useState(false)
+  const [showNgoPetProfiles, setShowNgoPetProfiles] = useState(false)
+  const [selectedNgoForProfiles, setSelectedNgoForProfiles] =
+    useState<NgoDirectoryItem | null>(null)
+  const [showAdoptionForm, setShowAdoptionForm] = useState(false)
+  const [selectedAdoptionNgo, setSelectedAdoptionNgo] = useState<NgoDirectoryItem | null>(null)
+  const [selectedAdoptionPet, setSelectedAdoptionPet] = useState<NgoPetProfile | null>(null)
+  const [adoptionForm, setAdoptionForm] = useState<PetAdoptionForm>(initialPetAdoptionForm)
+  const [adoptionIdProofFile, setAdoptionIdProofFile] = useState<File | null>(null)
+  const [adoptionIdProofPreview, setAdoptionIdProofPreview] = useState('')
+  const [submittingAdoptionForm, setSubmittingAdoptionForm] = useState(false)
+  const [showHandoverForm, setShowHandoverForm] = useState(false)
+  const [selectedHandoverNgo, setSelectedHandoverNgo] = useState<NgoDirectoryItem | null>(null)
+  const [handoverForm, setHandoverForm] = useState<PetHandoverForm>(initialPetHandoverForm)
+  const [submittingHandoverForm, setSubmittingHandoverForm] = useState(false)
   const [newPetForm, setNewPetForm] = useState({
     name: '',
     species: 'Dog',

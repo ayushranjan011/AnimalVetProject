@@ -154,6 +154,26 @@ type IncomingVideoCall = {
   roomID: string
 }
 
+type OwnerProfileForm = {
+  name: string
+  email: string
+  phone: string
+  location: string
+  city: string
+  state: string
+  country: string
+}
+
+const initialOwnerProfileForm: OwnerProfileForm = {
+  name: '',
+  email: '',
+  phone: '',
+  location: '',
+  city: '',
+  state: '',
+  country: '',
+}
+
 const mapToUsersRole = (
   role: 'user' | 'veterinarian' | 'ngo' | 'pet_nanny' | undefined
 ): 'pet_owner' | 'veterinarian' | 'ngo' | 'pet_nanny' => {
@@ -257,6 +277,10 @@ export default function UserDashboard() {
   const [vetsLoading, setVetsLoading] = useState(false)
   const [vetSearchTerm, setVetSearchTerm] = useState('')
   const [vetSchemaWarning, setVetSchemaWarning] = useState('')
+  const [ownerProfileForm, setOwnerProfileForm] = useState<OwnerProfileForm>(initialOwnerProfileForm)
+  const [ownerProfileLoading, setOwnerProfileLoading] = useState(false)
+  const [ownerProfileSaving, setOwnerProfileSaving] = useState(false)
+  const [ownerProfileSchemaWarning, setOwnerProfileSchemaWarning] = useState('')
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [incomingVideoCall, setIncomingVideoCall] = useState<IncomingVideoCall | null>(null)
   const [incomingVideoCallOpen, setIncomingVideoCallOpen] = useState(false)
@@ -483,6 +507,129 @@ export default function UserDashboard() {
 
     resolveOwnerId()
   }, [user?.id, user?.email, user?.name, user?.role])
+
+  useEffect(() => {
+    const loadOwnerProfile = async () => {
+      if (!user?.id) {
+        setOwnerProfileForm(initialOwnerProfileForm)
+        setOwnerProfileSchemaWarning('')
+        return
+      }
+
+      setOwnerProfileLoading(true)
+      setOwnerProfileSchemaWarning('')
+
+      const primaryQuery = await supabase
+        .from('profiles')
+        .select('name, email, phone, location, city, state, country')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      let data: any = primaryQuery.data
+      let error: any = primaryQuery.error
+
+      if (error && isMissingColumnError(error)) {
+        const fallbackQuery = await supabase
+          .from('profiles')
+          .select('name, email, phone')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        data = fallbackQuery.data
+        error = fallbackQuery.error
+        setOwnerProfileSchemaWarning(
+          'Profile location columns are missing in database. Run owner_profile_location_migration.sql in Supabase SQL Editor.'
+        )
+      }
+
+      setOwnerProfileLoading(false)
+
+      if (error) {
+        console.error('Failed to load pet owner profile:', error)
+        setOwnerProfileForm({
+          ...initialOwnerProfileForm,
+          name: user.name || '',
+          email: user.email || '',
+        })
+        return
+      }
+
+      setOwnerProfileForm({
+        name: normalizeText(data?.name) || user.name || '',
+        email: normalizeText(data?.email) || user.email || '',
+        phone: normalizeText(data?.phone),
+        location: normalizeText(data?.location),
+        city: normalizeText(data?.city),
+        state: normalizeText(data?.state),
+        country: normalizeText(data?.country),
+      })
+    }
+
+    void loadOwnerProfile()
+  }, [user?.id, user?.name, user?.email])
+
+  const handleOwnerProfileSave = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!user?.id) {
+      return
+    }
+
+    const normalizedName = ownerProfileForm.name.trim()
+    const normalizedPhone = ownerProfileForm.phone.trim()
+
+    if (!normalizedName) {
+      alert('Name is required.')
+      return
+    }
+
+    if (normalizedPhone && normalizedPhone.length !== 10) {
+      alert('Phone number must be exactly 10 digits')
+      return
+    }
+
+    setOwnerProfileSaving(true)
+
+    const profilePayload = {
+      name: normalizedName,
+      phone: normalizedPhone || null,
+      location: ownerProfileForm.location.trim() || null,
+      city: ownerProfileForm.city.trim() || null,
+      state: ownerProfileForm.state.trim() || null,
+      country: ownerProfileForm.country.trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+
+    let updateResult = await supabase.from('profiles').update(profilePayload).eq('id', user.id)
+
+    if (updateResult.error && isMissingColumnError(updateResult.error)) {
+      const fallbackResult = await supabase
+        .from('profiles')
+        .update({
+          name: normalizedName,
+          phone: normalizedPhone || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+
+      updateResult = fallbackResult
+      if (!fallbackResult.error) {
+        setOwnerProfileSchemaWarning(
+          'Profile updated without location fields because location columns are missing. Run owner_profile_location_migration.sql in Supabase SQL Editor.'
+        )
+      }
+    }
+
+    setOwnerProfileSaving(false)
+
+    if (updateResult.error) {
+      console.error('Failed to update owner profile:', updateResult.error)
+      alert(`Could not update profile: ${updateResult.error.message || 'Unknown error'}`)
+      return
+    }
+
+    alert('Profile updated successfully.')
+  }
 
   useEffect(() => {
     const fetchVets = async () => {
@@ -1050,6 +1197,33 @@ phImage: "/images/img/smartchemist.webp"
     }
   ];
 
+  const profileLocationSummary = [
+    ownerProfileForm.location,
+    ownerProfileForm.city,
+    ownerProfileForm.state,
+    ownerProfileForm.country,
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(', ')
+
+  const pharmacySearchTerms = [
+    ownerProfileForm.location,
+    ownerProfileForm.city,
+    ownerProfileForm.state,
+    ownerProfileForm.country,
+  ]
+    .map((value) => normalizeText(value).toLowerCase())
+    .filter(Boolean)
+
+  const filteredPharmacies =
+    pharmacySearchTerms.length === 0
+      ? pharmacies
+      : pharmacies.filter((shop) => {
+          const haystack = `${shop.name} ${shop.address}`.toLowerCase()
+          return pharmacySearchTerms.some((term) => haystack.includes(term))
+        })
+
   const pharmacyProducts = [
     { name: 'Heartgard Plus', category: 'Medicine', price: '₹45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
     { name: 'Premium Dog Food', category: 'Food', price: '₹59.99', image: '/images/product-food.jpg', description: 'High-protein adult formula' },
@@ -1370,17 +1544,27 @@ case 'pharmacy':
             </div>
 
             <Tabs defaultValue="all" className="w-full">
-              <main className="max-w-7xl mx-auto px-4 py-12">
+      <main className="max-w-7xl mx-auto px-4 py-12">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
-          <button className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50">
-            Use My Location
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">Nearest Pharmacies (Near You)</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              {profileLocationSummary
+                ? `Using profile location: ${profileLocationSummary}`
+                : 'Add place/city/state/country in My Profile for better nearest pharmacy results.'}
+            </p>
+          </div>
+          <button
+            className="flex items-center gap-2 text-blue-600 font-semibold border border-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50"
+            onClick={() => setActiveSection('my-profile')}
+          >
+            Update Location
           </button>
         </div>
 
         {/* Div Blocks Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {pharmacies.map((shop) => (
+          {filteredPharmacies.map((shop) => (
             <div key={shop.id} className="group bg-white rounded-3xl p-2 shadow-sm border border-slate-200 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <div className="bg-slate-100 rounded-2xl h-40 mb-4 overflow-hidden relative">
                 {/* Image Placeholder */}
@@ -1432,6 +1616,12 @@ case 'pharmacy':
             </div>
           ))}
         </div>
+
+        {filteredPharmacies.length === 0 && (
+          <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+            No pharmacy matched your profile location. Try updating city/state/country in My Profile.
+          </div>
+        )}
       </main>
             </Tabs>
           </div>
@@ -1722,24 +1912,147 @@ case 'pharmacy':
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-slate-800">My Profile</h2>
-                <p className="text-sm text-slate-500">Your account information</p>
+                <p className="text-sm text-slate-500">Manage your account and location for nearest pharmacy</p>
               </div>
             </div>
             <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/50">
-              <div className="grid md:grid-cols-2 gap-4 text-sm">
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Name:</span> <span className="font-semibold text-slate-700">{user?.name || 'N/A'}</span></div>
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-700">{user?.email || 'N/A'}</span></div>
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Role:</span> <span className="font-semibold text-slate-700 capitalize">{user?.role || 'N/A'}</span></div>
-                <div className="p-3 rounded-xl bg-sky-50/60"><span className="text-slate-500">Total Pets:</span> <span className="font-semibold text-slate-700">{myPets.length}</span></div>
-              </div>
-              <div className="mt-5 flex gap-3">
-                <Button onClick={() => setActiveSection('my-pets')} className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
-                  <PawPrint className="mr-2 h-4 w-4" /> View My Pets
-                </Button>
-                <Button variant="outline" className="bg-transparent" onClick={() => setActiveSection('notifications')}>
-                  <Bell className="mr-2 h-4 w-4" /> Notifications
-                </Button>
-              </div>
+              {ownerProfileLoading ? (
+                <div className="text-sm text-slate-500">Loading profile...</div>
+              ) : (
+                <form className="space-y-5" onSubmit={handleOwnerProfileSave}>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">Full Name</Label>
+                      <Input
+                        value={ownerProfileForm.name}
+                        onChange={(event) =>
+                          setOwnerProfileForm((prev) => ({ ...prev, name: event.target.value }))
+                        }
+                        className="mt-1.5 h-11 rounded-xl border-slate-200"
+                        placeholder="Your full name"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">Email</Label>
+                      <Input
+                        value={ownerProfileForm.email}
+                        className="mt-1.5 h-11 rounded-xl border-slate-200 bg-slate-100/70"
+                        readOnly
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">Phone</Label>
+                      <Input
+                        value={ownerProfileForm.phone}
+                        onChange={(event) =>
+                          setOwnerProfileForm((prev) => ({
+                            ...prev,
+                            phone: event.target.value.replace(/\D/g, '').slice(0, 10),
+                          }))
+                        }
+                        className="mt-1.5 h-11 rounded-xl border-slate-200"
+                        placeholder="10-digit number"
+                        inputMode="numeric"
+                        maxLength={10}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">Place / Area</Label>
+                      <Input
+                        value={ownerProfileForm.location}
+                        onChange={(event) =>
+                          setOwnerProfileForm((prev) => ({ ...prev, location: event.target.value }))
+                        }
+                        className="mt-1.5 h-11 rounded-xl border-slate-200"
+                        placeholder="Sector 18"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">City</Label>
+                      <Input
+                        value={ownerProfileForm.city}
+                        onChange={(event) =>
+                          setOwnerProfileForm((prev) => ({ ...prev, city: event.target.value }))
+                        }
+                        className="mt-1.5 h-11 rounded-xl border-slate-200"
+                        placeholder="Noida"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">State</Label>
+                      <Input
+                        value={ownerProfileForm.state}
+                        onChange={(event) =>
+                          setOwnerProfileForm((prev) => ({ ...prev, state: event.target.value }))
+                        }
+                        className="mt-1.5 h-11 rounded-xl border-slate-200"
+                        placeholder="Uttar Pradesh"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">Country</Label>
+                      <Input
+                        value={ownerProfileForm.country}
+                        onChange={(event) =>
+                          setOwnerProfileForm((prev) => ({ ...prev, country: event.target.value }))
+                        }
+                        className="mt-1.5 h-11 rounded-xl border-slate-200"
+                        placeholder="India"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-slate-700">Role</Label>
+                      <Input
+                        value={user?.role || 'N/A'}
+                        className="mt-1.5 h-11 rounded-xl border-slate-200 bg-slate-100/70 capitalize"
+                        readOnly
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-sky-50/70 text-sm text-slate-700">
+                    Total Pets: <span className="font-semibold">{myPets.length}</span>
+                  </div>
+
+                  {ownerProfileSchemaWarning && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                      {ownerProfileSchemaWarning}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-3 pt-2">
+                    <Button
+                      type="submit"
+                      disabled={ownerProfileSaving}
+                      className="bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600"
+                    >
+                      {ownerProfileSaving ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Saving...
+                        </span>
+                      ) : (
+                        'Save Profile'
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => setActiveSection('my-pets')}
+                      className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
+                    >
+                      <PawPrint className="mr-2 h-4 w-4" /> View My Pets
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="bg-transparent"
+                      onClick={() => setActiveSection('pharmacy')}
+                    >
+                      <Pill className="mr-2 h-4 w-4" /> Open Pharmacy
+                    </Button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         )

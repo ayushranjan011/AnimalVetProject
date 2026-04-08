@@ -24,6 +24,13 @@ type VetRegistrationForm = {
   description: string
 }
 
+type OwnerRegistrationForm = {
+  location: string
+  city: string
+  state: string
+  country: string
+}
+
 const initialVetForm: VetRegistrationForm = {
   specialty: '',
   experienceYears: '',
@@ -33,6 +40,13 @@ const initialVetForm: VetRegistrationForm = {
   consultationFee: '',
   availability: 'Available',
   description: '',
+}
+
+const initialOwnerForm: OwnerRegistrationForm = {
+  location: '',
+  city: '',
+  state: '',
+  country: '',
 }
 
 export default function RegisterPage() {
@@ -45,6 +59,7 @@ export default function RegisterPage() {
   const [hoveredRole, setHoveredRole] = useState<UserRole>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [vetForm, setVetForm] = useState<VetRegistrationForm>(initialVetForm)
+  const [ownerForm, setOwnerForm] = useState<OwnerRegistrationForm>(initialOwnerForm)
   const [vetImageFile, setVetImageFile] = useState<File | null>(null)
   const [vetImagePreview, setVetImagePreview] = useState('')
   const { signup, logout } = useAuth()
@@ -68,6 +83,10 @@ export default function RegisterPage() {
     setVetForm(initialVetForm)
     setVetImageFile(null)
     setVetImagePreview('')
+  }
+
+  const resetOwnerForm = () => {
+    setOwnerForm(initialOwnerForm)
   }
 
   const handlePhoneChange = (value: string) => {
@@ -162,6 +181,14 @@ export default function RegisterPage() {
               availability: vetForm.availability,
               description: vetForm.description,
               imageUrl: vetImageUrl,
+            }
+          : undefined,
+        ownerProfile: selectedRole === 'user'
+          ? {
+              location: ownerForm.location,
+              city: ownerForm.city,
+              state: ownerForm.state,
+              country: ownerForm.country,
             }
           : undefined,
       })
@@ -340,6 +367,7 @@ export default function RegisterPage() {
                   onClick={() => {
                     setSelectedRole(null)
                     resetVetForm()
+                    resetOwnerForm()
                   }}
                   className="flex items-center gap-2 text-slate-500 hover:text-slate-700 transition-colors"
                 >
@@ -438,6 +466,55 @@ export default function RegisterPage() {
                         />
                       </div>
                     </div>
+
+                    {selectedRole === 'user' && (
+                      <section className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 md:p-5 space-y-4">
+                        <div>
+                          <h4 className="text-base font-semibold text-slate-800">Location Details</h4>
+                          <p className="text-xs text-slate-500">
+                            Add your location so we can show nearest pharmacy options.
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-slate-700">Place / Area</Label>
+                          <Input
+                            value={ownerForm.location}
+                            onChange={(e) => setOwnerForm((prev) => ({ ...prev, location: e.target.value }))}
+                            placeholder="Sector 18"
+                            className="mt-1.5 h-11 rounded-xl border-slate-200"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">City</Label>
+                            <Input
+                              value={ownerForm.city}
+                              onChange={(e) => setOwnerForm((prev) => ({ ...prev, city: e.target.value }))}
+                              placeholder="Noida"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">State</Label>
+                            <Input
+                              value={ownerForm.state}
+                              onChange={(e) => setOwnerForm((prev) => ({ ...prev, state: e.target.value }))}
+                              placeholder="Uttar Pradesh"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-slate-700">Country</Label>
+                            <Input
+                              value={ownerForm.country}
+                              onChange={(e) => setOwnerForm((prev) => ({ ...prev, country: e.target.value }))}
+                              placeholder="India"
+                              className="mt-1.5 h-11 rounded-xl border-slate-200"
+                            />
+                          </div>
+                        </div>
+                      </section>
+                    )}
 
                     {selectedRole === 'veterinarian' && (
                       <section className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 md:p-5 space-y-4">

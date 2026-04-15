@@ -2149,7 +2149,7 @@ const pharmacies = [
       contact: "+91 120 4567890",
       status: "Open",
       rating: 4.8,
-phImage: "/images/img/smartchemist.webp"
+phImage: "/images/img/smartChemist.jpeg"
     },
     {
       id: 2,
@@ -2160,7 +2160,7 @@ phImage: "/images/img/smartchemist.webp"
       contact: "+91 120 9876543",
       status: "Open",
       rating: 4.5,
-      phImage: "/images/img/easylife.webp"
+      phImage: "/images/img/easy.jpeg"
     },
     {
       id: 3,
@@ -2170,7 +2170,7 @@ phImage: "/images/img/smartchemist.webp"
       timing: "10:00 AM - 10:00 PM",
       contact: "+91 11 22334455",
       status: "Closed",
-      phImage: "/images/img/wellness.webp",
+      phImage: "/images/img/welness.jpeg",
       rating: 4.2
     }
   ];
@@ -2254,14 +2254,14 @@ phImage: "/images/img/smartchemist.webp"
           return pharmacySearchTerms.some((term) => haystack.includes(term))
         })
 
-  const pharmacyProducts = [
-    { name: 'Heartgard Plus', category: 'Medicine', price: '₹45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
-    { name: 'Premium Dog Food', category: 'Food', price: '₹59.99', image: '/images/product-food.jpg', description: 'High-protein adult formula' },
-    { name: 'Flea & Tick Shampoo', category: 'Grooming', price: '₹18.99', image: '/images/product-food.jpg', description: 'Gentle cleansing formula' },
-    { name: 'Joint Support Chews', category: 'Supplements', price: '₹34.99', image: '/images/product-food.jpg', description: 'Glucosamine & chondroitin' },
-    { name: 'Dental Treats', category: 'Food', price: '₹24.99', image: '/images/product-food.jpg', description: 'Reduces plaque & tartar' },
-    { name: 'Vitamin Supplements', category: 'Supplements', price: '₹29.99', image: '/images/product-food.jpg', description: 'Daily multivitamin' },
-  ]
+  // const pharmacyProducts = [
+  //   { name: 'Heartgard Plus', category: 'Medicine', price: '₹45.99', image: '/images/product-food.jpg', description: 'Monthly heartworm prevention' },
+  //   { name: 'Premium Dog Food', category: 'Food', price: '₹59.99', image: '/images/product-food.jpg', description: 'High-protein adult formula' },
+  //   { name: 'Flea & Tick Shampoo', category: 'Grooming', price: '₹18.99', image: '/images/product-food.jpg', description: 'Gentle cleansing formula' },
+  //   { name: 'Joint Support Chews', category: 'Supplements', price: '₹34.99', image: '/images/product-food.jpg', description: 'Glucosamine & chondroitin' },
+  //   { name: 'Dental Treats', category: 'Food', price: '₹24.99', image: '/images/product-food.jpg', description: 'Reduces plaque & tartar' },
+  //   { name: 'Vitamin Supplements', category: 'Supplements', price: '₹29.99', image: '/images/product-food.jpg', description: 'Daily multivitamin' },
+  // ]
 
   const trainingVideos = [
     { id:1 ,title: 'New Cat Owner Guide', duration: '15 min', thumbnail: '/images/img/catguide2.png', views: '12K', instructor: 'John Smith' ,youtubeurl:"https://youtu.be/PMjBFyFO4W8?si=jeuwlDexBujqfKlU"},
